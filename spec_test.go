@@ -369,7 +369,7 @@ func TestSpecFilters(t *testing.T) {
 		{Name: "rstrip", Template: `{{ "  hello  " | rstrip }}`, Data: nil, Expected: "  hello"},
 		// truncate
 		{Name: "truncate", Template: `{{ "hello world" | truncate: 8 }}`, Data: nil, Expected: "hello..."},
-		{Name: "truncate custom ellipsis", Template: `{{ "hello world" | truncate: 8, "--" }}`, Data: nil, Expected: "hello w--"},
+		{Name: "truncate custom ellipsis", Template: `{{ "hello world" | truncate: 8, "--" }}`, Data: nil, Expected: "hello --"},
 		// slice
 		{Name: "slice single", Template: `{{ "hello" | slice: 1 }}`, Data: nil, Expected: "e"},
 		{Name: "slice range", Template: `{{ "hello" | slice: 1, 3 }}`, Data: nil, Expected: "ell"},
