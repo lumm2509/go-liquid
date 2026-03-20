@@ -1330,6 +1330,14 @@ Parcialmente implementado: eliminados `disabledTags` (nunca leído, código muer
 
 > ✅ **Evidencia (parcial):** `context.go:26-31` — dos campos eliminados. commit `cbce643`.
 
+**6.5 ✅ — Tests de `internal/parser` + limpieza de código muerto**
+
+- `internal/parser/parser_test.go`: 15 tests cubriendo `StringScanner`, `Tokenize`, `Tokenizer`, `Parser`. Race-clean, 3-run pass.
+- `parse_context.go`: eliminado método muerto `NewBlockBody()`.
+- `range_lookup.go`: consolidado `ToInteger` → `UtilsToInteger`, eliminado import `strconv` huérfano.
+
+> ✅ **Evidencia:** `internal/parser/parser_test.go`. `go test -race -count=3 ./...` — ok en 3 paquetes. commit `269b977`.
+
 ---
 
 ## CI mínimo requerido
@@ -1383,4 +1391,4 @@ El benchmark comparison puede hacerse con `benchstat` de `golang.org/x/perf`.
 | 3B — Spec compliance | ✅ Completado | Fase 3A | Fixtures pasan o están en `Skip` con justificación |
 | 4 — Concurrencia | ✅ Completado | 1 y 3A | `Template` inmutable, `-race -count=10` limpio |
 | 5 — Performance | ✅ Completado | Fase 4 | Benchmarks baseline guardados, hotspots 1+2 medidos |
-| 6 — Arquitectura | ⬜ Pendiente | Fases 1–5 | `internal/` completo, extensibilidad verificada |
+| 6 — Arquitectura | 🔶 Parcial | — | `internal/runtime`+`internal/parser` listos; `internal/tags` bloqueado (Evaluator interface pendiente) |
