@@ -24,7 +24,7 @@ type Increment struct {
 	VariableName string
 }
 
-func NewIncrement(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewIncrement(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	return &Increment{
 		TagBase:      NewTagBase(tagName, markup, parseContext),
 		VariableName: strings.TrimSpace(markup),
@@ -44,7 +44,7 @@ type Decrement struct {
 	VariableName string
 }
 
-func NewDecrement(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewDecrement(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	return &Decrement{
 		TagBase:      NewTagBase(tagName, markup, parseContext),
 		VariableName: strings.TrimSpace(markup),

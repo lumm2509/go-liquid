@@ -11,7 +11,7 @@ var AttrRegex = regexp.MustCompile(`([\w-]+):\s*([^,]+)`)
 
 type Render struct {
 	TagBase
-	parseContext     *ParseContext
+	parseContext     TagParseContext
 	TemplateName     string
 	VariableTemplate interface{}
 	VariableName     interface{}
@@ -20,7 +20,7 @@ type Render struct {
 	Attributes       map[string]interface{}
 }
 
-func NewRender(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewRender(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	r := &Render{
 		TagBase:      NewTagBase(tagName, markup, parseContext),
 		parseContext: parseContext,
@@ -32,7 +32,7 @@ func NewRender(tagName string, markup string, parseContext *ParseContext) (Tag, 
 		if matches[1] != "" {
 			r.TemplateName = matches[2]
 		} else {
-			expr, _ := ParseExpression(matches[4], parseContext.stringScanner, parseContext.expressionCache)
+			expr, _ := parseContext.ParseExpression(matches[4])
 			r.VariableTemplate = expr
 		}
 
@@ -50,7 +50,7 @@ func NewRender(tagName string, markup string, parseContext *ParseContext) (Tag, 
 					attrPart = varPart[commaIdx+1:]
 					varPart = varPart[:commaIdx]
 				}
-				r.VariableName, _ = ParseExpression(strings.TrimSpace(varPart), parseContext.stringScanner, parseContext.expressionCache)
+				r.VariableName, _ = parseContext.ParseExpression(strings.TrimSpace(varPart))
 				if len(asSplit) > 1 {
 					aliasAndAttrs := asSplit[1]
 					if commaIdx := strings.Index(aliasAndAttrs, ","); commaIdx != -1 {
@@ -74,12 +74,12 @@ func NewRender(tagName string, markup string, parseContext *ParseContext) (Tag, 
 	return r, nil
 }
 
-func (r *Render) parseAttributes(markup string, ctx *ParseContext) {
+func (r *Render) parseAttributes(markup string, ctx TagParseContext) {
 	matches := AttrRegex.FindAllStringSubmatch(markup, -1)
 	for _, m := range matches {
 		key := m[1]
 		valMarkup := strings.TrimSpace(m[2])
-		expr, _ := ParseExpression(valMarkup, ctx.stringScanner, ctx.expressionCache)
+		expr, _ := ctx.ParseExpression(valMarkup)
 		r.Attributes[key] = expr
 	}
 }
@@ -99,7 +99,7 @@ func (r *Render) RenderToOutputBuffer(context *Context, output *strings.Builder)
 		return nil
 	}
 
-	partial, err := LoadPartial(templateName, context, r.parseContext)
+	partial, err := LoadPartial(templateName, context, r.parseContext.(*ParseContext))
 	if err != nil {
 		return err
 	}

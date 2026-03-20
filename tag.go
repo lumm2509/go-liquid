@@ -51,8 +51,18 @@ func (s *StringNode) TrimRight() {
 	s.content = s.content[:n]
 }
 
+// TagParseContext is the interface passed to TagFactory during tag construction.
+// It exposes only what a custom tag implementation needs at parse time.
+// The concrete *ParseContext implements this interface; external tag authors
+// should type their factory functions against TagParseContext, not *ParseContext.
+type TagParseContext interface {
+	ParseExpression(markup string) (interface{}, error)
+	NewTokenizer(source string, startLine int, forLiquidTag bool) *Tokenizer
+	LineNo() int
+}
+
 // TagFactory es el tipo de función necesaria para registrar tags en el Environment
-type TagFactory func(tagName string, markup string, parseContext *ParseContext) (Tag, error)
+type TagFactory func(tagName string, markup string, parseContext TagParseContext) (Tag, error)
 
 type Tag interface {
 	Node
@@ -68,11 +78,11 @@ type TagBase struct {
 }
 
 // NewTagBase equivale al initialize de Ruby
-func NewTagBase(tagName string, markup string, parseContext *ParseContext) TagBase {
+func NewTagBase(tagName string, markup string, parseContext TagParseContext) TagBase {
 	return TagBase{
 		name:   tagName,
 		markup: markup,
-		line:   parseContext.LineNumber,
+		line:   parseContext.LineNo(),
 	}
 }
 
@@ -106,7 +116,7 @@ func (t *TagBase) RenderToOutputBuffer(context *Context, output *strings.Builder
 }
 
 func WrapWithDisabler(originalFactory TagFactory) TagFactory {
-	return func(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+	return func(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 		return &DisabledTag{TagBase: NewTagBase(tagName, markup, parseContext), tagName: tagName}, nil
 	}
 }

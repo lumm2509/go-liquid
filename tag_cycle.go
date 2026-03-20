@@ -11,7 +11,7 @@ type Cycle struct {
 	Name      interface{}
 }
 
-func NewCycle(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewCycle(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	c := &Cycle{
 		TagBase: NewTagBase(tagName, markup, parseContext),
 	}
@@ -32,7 +32,7 @@ func NewCycle(tagName string, markup string, parseContext *ParseContext) (Tag, e
 	// Named group: first token followed by colon — {% cycle "name": "a", "b" %}
 	startIdx := 0
 	if len(toks) >= 2 && toks[1].Type == ColonToken {
-		expr, _ := ParseExpression(toks[0].Value, parseContext.stringScanner, parseContext.expressionCache)
+		expr, _ := parseContext.ParseExpression(toks[0].Value)
 		c.Name = expr
 		startIdx = 2
 	}
@@ -42,7 +42,7 @@ func NewCycle(tagName string, markup string, parseContext *ParseContext) (Tag, e
 		if toks[i].Type == CommaToken {
 			continue
 		}
-		expr, _ := ParseExpression(toks[i].Value, parseContext.stringScanner, parseContext.expressionCache)
+		expr, _ := parseContext.ParseExpression(toks[i].Value)
 		c.Variables = append(c.Variables, expr)
 	}
 

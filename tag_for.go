@@ -22,7 +22,7 @@ type For struct {
 	Offset         interface{} // expression or nil
 }
 
-func NewFor(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewFor(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	f := &For{
 		Block: NewBlock(tagName, markup, parseContext),
 	}
@@ -37,16 +37,16 @@ func NewFor(tagName string, markup string, parseContext *ParseContext) (Tag, err
 
 	// Extraer atributos del resto
 	if m := forLimitRe.FindStringSubmatch(rest); m != nil {
-		f.Limit, _ = ParseExpression(m[1], parseContext.stringScanner, parseContext.expressionCache)
+		f.Limit, _ = parseContext.ParseExpression(m[1])
 	}
 	if m := forOffsetRe.FindStringSubmatch(rest); m != nil {
-		f.Offset, _ = ParseExpression(m[1], parseContext.stringScanner, parseContext.expressionCache)
+		f.Offset, _ = parseContext.ParseExpression(m[1])
 	}
 	f.Reversed = forReversedRe.MatchString(rest)
 
 	// Limpiar atributos para obtener solo la expresión de la colección
 	collectionMarkup := strings.TrimSpace(forAttrStripRe.ReplaceAllString(rest, ""))
-	f.CollectionName, _ = ParseExpression(collectionMarkup, parseContext.stringScanner, parseContext.expressionCache)
+	f.CollectionName, _ = parseContext.ParseExpression(collectionMarkup)
 
 	return f, nil
 }

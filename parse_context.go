@@ -1,8 +1,5 @@
 package liquid
 
-import (
-	"fmt"
-)
 
 // modos de error internos del ParseContext (implementación, no API pública)
 const (
@@ -88,14 +85,13 @@ func (pc *ParseContext) SafeParseExpression(parser *Parser) (interface{}, error)
 	return ParseExpressionSafe(parser, pc.stringScanner, pc.expressionCache)
 }
 
-// ParseExpression equivale al método principal de parseo de markup
-func (pc *ParseContext) ParseExpression(markup string, safe bool) (interface{}, error) {
-	if !safe && pc.ErrorMode == errorModeStrict2 {
-		return nil, fmt.Errorf("InternalError: unsafe parse_expression cannot be used in strict2 mode")
-	}
-
+// ParseExpression parses the given markup string and returns the expression.
+func (pc *ParseContext) ParseExpression(markup string) (interface{}, error) {
 	return ParseExpression(markup, pc.stringScanner, pc.expressionCache)
 }
+
+// LineNo returns the current line number being parsed.
+func (pc *ParseContext) LineNo() int { return pc.LineNumber }
 
 // SetPartial es el setter de partial (partial=) que maneja el cambio de opciones
 func (pc *ParseContext) SetPartial(isPartial bool) {

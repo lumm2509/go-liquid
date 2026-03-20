@@ -60,7 +60,7 @@ func NewCondition(left interface{}, operator string, right interface{}) *Conditi
 	}
 }
 
-func ParseCondition(markup string, parseContext *ParseContext) (*Condition, error) {
+func ParseCondition(markup string, parseContext TagParseContext) (*Condition, error) {
 	if markup == "" {
 		return nil, nil
 	}
@@ -74,7 +74,7 @@ func ParseCondition(markup string, parseContext *ParseContext) (*Condition, erro
 	return parseRecursive(tokens, parseContext)
 }
 
-func parseRecursive(tokens []Token, parseContext *ParseContext) (*Condition, error) {
+func parseRecursive(tokens []Token, parseContext TagParseContext) (*Condition, error) {
 	if len(tokens) == 0 || tokens[0].Type == EOSToken {
 		return nil, nil
 	}
@@ -97,14 +97,14 @@ func parseRecursive(tokens []Token, parseContext *ParseContext) (*Condition, err
 			for j := p; j < len(tokens); j++ {
 				if tokens[j].Type == IdToken && (tokens[j].Value == "and" || tokens[j].Value == "or") {
 					rightMarkup := tokensToMarkup(tokens[p:j])
-					right, _ = ParseExpression(rightMarkup, parseContext.stringScanner, parseContext.expressionCache)
+					right, _ = parseContext.ParseExpression(rightMarkup)
 					rel = tokens[j].Value
 					relIdx = j
 					break
 				}
 				if tokens[j].Type == EOSToken {
 					rightMarkup := tokensToMarkup(tokens[p:j])
-					right, _ = ParseExpression(rightMarkup, parseContext.stringScanner, parseContext.expressionCache)
+					right, _ = parseContext.ParseExpression(rightMarkup)
 					break
 				}
 			}
@@ -122,7 +122,7 @@ func parseRecursive(tokens []Token, parseContext *ParseContext) (*Condition, err
 		}
 	}
 
-	left, _ := ParseExpression(leftMarkup, parseContext.stringScanner, parseContext.expressionCache)
+	left, _ := parseContext.ParseExpression(leftMarkup)
 	cond := NewCondition(left, op, right)
 
 	if rel != "" {

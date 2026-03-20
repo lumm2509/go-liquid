@@ -8,12 +8,12 @@ import (
 // The 'with' and 'for' sub-template syntaxes are not implemented.
 type Include struct {
 	TagBase
-	parseContext *ParseContext
+	parseContext TagParseContext
 	TemplateName interface{}
 	Attributes   map[string]interface{}
 }
 
-func NewInclude(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewInclude(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	i := &Include{
 		TagBase:      NewTagBase(tagName, markup, parseContext),
 		parseContext: parseContext,
@@ -22,7 +22,7 @@ func NewInclude(tagName string, markup string, parseContext *ParseContext) (Tag,
 
 	parts := strings.Split(markup, " ")
 	if len(parts) > 0 {
-		i.TemplateName, _ = ParseExpression(parts[0], parseContext.stringScanner, parseContext.expressionCache)
+		i.TemplateName, _ = parseContext.ParseExpression(parts[0])
 	}
 
 	return i, nil
@@ -35,7 +35,7 @@ func (i *Include) RenderToOutputBuffer(context *Context, output *strings.Builder
 		return &ArgumentError{BaseError: BaseError{Message: "Illegal template name"}}
 	}
 
-	partial, err := LoadPartial(templateName, context, i.parseContext)
+	partial, err := LoadPartial(templateName, context, i.parseContext.(*ParseContext))
 	if err != nil {
 		return err
 	}

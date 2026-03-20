@@ -16,7 +16,7 @@ type TableRow struct {
 	Cols           interface{} // expression or nil
 }
 
-func NewTableRow(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
+func NewTableRow(tagName string, markup string, parseContext TagParseContext) (Tag, error) {
 	t := &TableRow{
 		Block: NewBlock(tagName, markup, parseContext),
 	}
@@ -31,11 +31,11 @@ func NewTableRow(tagName string, markup string, parseContext *ParseContext) (Tag
 
 	// Extraer cols:N del markup
 	if m := tablerowColsRe.FindStringSubmatch(rest); m != nil {
-		t.Cols, _ = ParseExpression(m[1], parseContext.stringScanner, parseContext.expressionCache)
+		t.Cols, _ = parseContext.ParseExpression(m[1])
 	}
 
 	collectionMarkup := strings.TrimSpace(tablerowAttrStripRe.ReplaceAllString(rest, ""))
-	t.CollectionName, _ = ParseExpression(collectionMarkup, parseContext.stringScanner, parseContext.expressionCache)
+	t.CollectionName, _ = parseContext.ParseExpression(collectionMarkup)
 
 	return t, nil
 }
