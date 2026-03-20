@@ -159,7 +159,7 @@ El costo de ignorar esta regla es conocido: entras en loops de regresión donde 
 | 2 | API pública limpia | ✅ Completado | Contrato claro, singleton eliminado |
 | 3A | Consistencia interna | ✅ Completado | Semántica uniforme en todo el engine |
 | 3B | Spec compliance | ✅ Completado | Compatibilidad real con Shopify Liquid |
-| 4 | Concurrencia segura | ⬜ Pendiente | `Template` inmutable, `go test -race` limpio |
+| 4 | Concurrencia segura | ✅ Completado | `Template` inmutable, `go test -race` limpio |
 | 5 | Performance | ⬜ Pendiente | Benchmarks, allocaciones justificadas |
 | 6 | Arquitectura interna | ⬜ Pendiente | `internal/`, boundaries respetados |
 
@@ -1109,7 +1109,7 @@ La estrategia: **documentar las desviaciones del spec en lugar de parchearlas to
 
 ---
 
-## Fase 4 — Concurrencia segura
+## ✅ Fase 4 — Concurrencia segura
 
 > **Objetivo:** `go test -race -count=10 ./...` pasa limpio.
 > Cero data races. El mismo `*Template` puede renderizarse desde N goroutines simultáneamente.
@@ -1151,78 +1151,29 @@ Si `Template` tiene campos que se escriben durante `Render` (como actualmente `t
 
 ### Tareas
 
-**4.1 — Hacer `Template` inmutable y aislar `ResourceLimits` por render**
+**✅ 4.1 — `Template` inmutable, `ResourceLimits` aislado por render**
 
-```go
-// template.go — en Render():
-// No pasar t.ResourceLimits directamente. Crear uno nuevo por render:
-renderLimits := NewResourceLimits(t.Environment.DefaultResourceLimits)
-ctx := NewContext(environments, t.InstanceAssigns, registers, rethrowErrors,
-    renderLimits,  // ← no compartido
-    []map[string]interface{}{},
-    t.Environment,
-)
-```
+> ✅ **Evidencia:** `template.go:126` — `t.ResourceLimits.Fork()` crea contadores limpios por render. `InstanceAssigns` copiado a `outerScope` (línea 116-119). Campos leídos en Render nunca escritos post-Parse.
 
-Si el consumer necesita inspeccionar los límites después del render, devolverlos en el resultado o en `template.Errors`.
+**✅ 4.2 — `cachedPartials` per-render (no necesita `sync.Map`)**
 
-**4.2 — Proteger `cachedPartials` con `sync.Map`**
+> ✅ **Evidencia:** `context.go:95` — `NewContext` crea un `cached_partials` map fresco en `Registers.static` por cada render. Cada goroutine de render tiene su propio mapa, sin compartición.
 
-```go
-// Reemplazar el map[string]interface{} de cached_partials por sync.Map
-// en el registro estático del contexto.
+**✅ 4.3 — `expressionCache` aislado por parse**
 
-// partial_cache.go:
-cachedPartialsRaw := context.Registers.Get("cached_partials")
-var cachedPartials *sync.Map
-// ...
-if existing, ok := cachedPartials.Load(cacheKey); ok {
-    return existing.(*Template), nil
-}
-// parse...
-cachedPartials.Store(cacheKey, template)
-```
+> ✅ **Evidencia:** `parse_context.go:62-68` — `setupExpressionCache` crea un map nuevo cuando `expression_cache` no está en las opciones (caso por defecto). Partials reciben su propio `ParseContext` vía `template.Parse(source, parseContext.options)` donde `options` no incluye `expression_cache` de serie.
 
-**4.3 — Aislar `expressionCache` por parse**
+**✅ 4.4 — `Environment.Tags` protegido con `RWMutex`**
 
-El `expressionCache` en `ParseContext` no debe ser compartido entre parsings concurrentes. `NewParseContext` ya crea uno nuevo por defecto — el problema es cuando el mismo `ParseContext` se reutiliza para parsear partials. Verificar que `LoadPartial` crea su propio `ParseContext` y no reutiliza el del template padre.
+> ✅ **Evidencia:** `environment.go:108` — `RegisterTag` usa `e.mu.Lock()`. `environment.go:178` — `TagForName` usa `e.mu.RLock()`.
 
-**4.4 — Proteger `Environment.Tags` con el mutex existente**
+**✅ 4.5 — `dangerouslyOverride` eliminado**
 
-`Environment` ya tiene `sync.RWMutex`. Extender su uso a `Tags`:
+> ✅ **Evidencia:** removido de `environment.go` — no tenía usos reales y escribía `defaultEnv` sin ninguna sincronización.
 
-```go
-func (e *Environment) RegisterTag(name string, factory TagFactory) error {
-    e.mu.Lock()
-    defer e.mu.Unlock()
-    if e.frozen {
-        return fmt.Errorf("cannot modify frozen environment: tag %s", name)
-    }
-    e.Tags[name] = factory
-    return nil
-}
+**✅ 4.6 — `Context.Errors` desacoplado en subcontextos**
 
-func (e *Environment) TagForName(name string) TagFactory {
-    e.mu.RLock()
-    defer e.mu.RUnlock()
-    return e.Tags[name]
-}
-```
-
-**4.5 — Eliminar `DangerouslyOverride`**
-
-No hay forma de hacerlo thread-safe sin un mutex global que añade contención. La solución es eliminarlo. Los tests que lo usan deben usar `ParseWithEnv` con un environment local.
-
-**4.6 — Desacoplar `Context.Errors` de subcontextos**
-
-```go
-// En lugar de compartir el slice:
-sub.Errors = c.Errors  // ← race condition
-
-// El subcontexto tiene sus propios errores:
-sub.Errors = make([]error, 0)
-// Al terminar el render del subcontexto, merge con mutex o channel
-```
+> ✅ **Evidencia:** `context.go:285-286` — `NewIsolatedSubcontext` crea slices propios. `context.go:297` — `MergeSubcontext` propaga errores al parent después del subrender. `tag_render.go:122` — `defer context.MergeSubcontext(innerContext)`.
 
 ---
 
@@ -1590,6 +1541,6 @@ El benchmark comparison puede hacerse con `benchstat` de `golang.org/x/perf`.
 | 2 — API pública | ⬜ Pendiente | Fase 0 | `RenderOptions` tipado, versión declarada en README |
 | 3A — Semántica interna | ⬜ Pendiente | Fase 1 | Semantic lock tests pasan, `IsTruthy` centralizado |
 | 3B — Spec compliance | ✅ Completado | Fase 3A | Fixtures pasan o están en `Skip` con justificación |
-| 4 — Concurrencia | ⬜ Pendiente | 1 y 3A | `Template` inmutable, `-race -count=10` limpio |
+| 4 — Concurrencia | ✅ Completado | 1 y 3A | `Template` inmutable, `-race -count=10` limpio |
 | 5 — Performance | ⬜ Pendiente | Fase 4 | Benchmarks baseline guardados, hotspots 1+2 medidos |
 | 6 — Arquitectura | ⬜ Pendiente | Fases 1–5 | `internal/` completo, extensibilidad verificada |
