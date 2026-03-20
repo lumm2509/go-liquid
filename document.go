@@ -7,17 +7,12 @@ import (
 
 // Document representa la raíz del árbol de parseo de Liquid.
 type Document struct {
-	ParseContext *ParseContext
-	Body         *BlockBody // Asumiendo que BlockBody ya está definido
+	Body *BlockBody
 }
 
 // NewDocument es el equivalente a Document.new
 func NewDocument(parseContext *ParseContext) *Document {
-	doc := &Document{
-		ParseContext: parseContext,
-	}
-	doc.Body = doc.newBody()
-	return doc
+	return &Document{Body: NewBlockBody()}
 }
 
 // Parse es el punto de entrada principal (equivalente a self.parse)
@@ -38,17 +33,14 @@ func (d *Document) NodeList() []Node {
 // Parse ejecuta el bucle de parseo
 func (d *Document) Parse(tokenizer *Tokenizer, parseContext *ParseContext) error {
 	for {
-		continued, err := d.parseBody(tokenizer)
+		continued, err := d.parseBody(tokenizer, parseContext)
 		if err != nil {
-			// En Ruby se asigna el line_number al error si no lo tiene
-			// Aquí podrías envolver el error con más contexto
 			return fmt.Errorf("line %d: %w", parseContext.LineNumber, err)
 		}
 		if !continued {
 			break
 		}
 	}
-	// En Ruby se hace @body.freeze, en Go simplemente dejamos de modificarlo
 	return nil
 }
 
@@ -78,16 +70,8 @@ func (d *Document) Render(context *Context) (string, error) {
 	return sb.String(), nil
 }
 
-// --- Métodos Privados ---
-
-func (d *Document) newBody() *BlockBody {
-	return d.ParseContext.NewBlockBody()
-}
-
-func (d *Document) parseBody(tokenizer *Tokenizer) (bool, error) {
-	// En Ruby, @body.parse acepta un bloque.
-	// En Go, pasamos una función anónima (callback).
-	return d.Body.Parse(tokenizer, d.ParseContext, func(tagName string, tagMarkup string) (bool, error) {
+func (d *Document) parseBody(tokenizer *Tokenizer, parseContext *ParseContext) (bool, error) {
+	return d.Body.Parse(tokenizer, parseContext, func(tagName string, tagMarkup string) (bool, error) {
 		if tagName != "" {
 			err := d.UnknownTag(tagName, tagMarkup, tokenizer)
 			return true, err
