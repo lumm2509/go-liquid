@@ -230,24 +230,6 @@ func (vl *VariableLookup) accessProperty(ctx *Context, obj interface{}, key inte
 		}
 	}
 
-	// 6. Special handling for color strings (e.g., #FFFFFF)
-	if s, ok := obj.(string); ok && strings.HasPrefix(s, "#") {
-		if keyStr, ok := key.(string); ok {
-			var r, g, b int
-			fmt.Sscanf(s, "#%02x%02x%02x", &r, &g, &b)
-			switch keyStr {
-			case "red":
-				return r
-			case "green":
-				return g
-			case "blue":
-				return b
-			case "rgb":
-				return fmt.Sprintf("%d, %d, %d", r, g, b)
-			}
-		}
-	}
-
 	return nil
 }
 

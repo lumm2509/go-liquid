@@ -290,10 +290,6 @@ func toFloat64(val interface{}) float64 {
 	}
 }
 
-type ElseCondition struct {
-	Condition
-}
-
 func NewElseCondition() *Condition {
 	return &Condition{}
 }
