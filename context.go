@@ -26,8 +26,6 @@ type Context struct {
 	interrupts     []interface{}
 	filters        []interface{}
 	strainer       *Strainer
-	disabledTags   map[string]int
-	stringScanner  *StringScanner
 	baseScopeDepth int
 }
 
@@ -80,11 +78,9 @@ func NewContext(
 		Partial:            false,
 		StrictVariables:    false,
 		ResourceLimits:     resourceLimits,
-		baseScopeDepth:     0,
-		interrupts:         []interface{}{},
-		filters:            []interface{}{},
-		disabledTags:       make(map[string]int),
-		stringScanner:      NewStringScanner(""),
+		baseScopeDepth: 0,
+		interrupts:     []interface{}{},
+		filters:        []interface{}{},
 	}
 
 	if ctx.ResourceLimits == nil {
@@ -134,7 +130,7 @@ func (c *Context) Stack(newScope map[string]interface{}, block func() error) err
 
 func (c *Context) Get(expression string) interface{} {
 	// En Ruby: evaluate(Expression.parse(expression, @string_scanner))
-	expr, _ := ParseExpression(expression, c.stringScanner, nil)
+	expr, _ := ParseExpression(expression, NewStringScanner(""), nil)
 	return c.Evaluate(expr)
 }
 
@@ -289,7 +285,6 @@ func (c *Context) NewIsolatedSubcontext() *Context {
 	// Caller merges sub.Errors into parent after the subrender completes.
 	sub.Errors = make([]error, 0)
 	sub.Warnings = make([]error, 0)
-	sub.disabledTags = c.disabledTags
 	return sub
 }
 
