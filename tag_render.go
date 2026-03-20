@@ -11,6 +11,7 @@ var AttrRegex = regexp.MustCompile(`([\w-]+):\s*([^,]+)`)
 
 type Render struct {
 	TagBase
+	parseContext     *ParseContext
 	TemplateName     string
 	VariableTemplate interface{}
 	VariableName     interface{}
@@ -21,8 +22,9 @@ type Render struct {
 
 func NewRender(tagName string, markup string, parseContext *ParseContext) (Tag, error) {
 	r := &Render{
-		TagBase:    NewTagBase(tagName, markup, parseContext),
-		Attributes: make(map[string]interface{}),
+		TagBase:      NewTagBase(tagName, markup, parseContext),
+		parseContext: parseContext,
+		Attributes:   make(map[string]interface{}),
 	}
 
 	matches := RenderSyntax.FindStringSubmatch(markup)
@@ -97,7 +99,7 @@ func (r *Render) RenderToOutputBuffer(context *Context, output *strings.Builder)
 		return nil
 	}
 
-	partial, err := LoadPartial(templateName, context, r.TagBase.parseContext)
+	partial, err := LoadPartial(templateName, context, r.parseContext)
 	if err != nil {
 		return err
 	}

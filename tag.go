@@ -62,19 +62,17 @@ type Tag interface {
 }
 
 type TagBase struct {
-	name         string
-	markup       string
-	line         int
-	parseContext *ParseContext
+	name   string
+	markup string
+	line   int
 }
 
 // NewTagBase equivale al initialize de Ruby
 func NewTagBase(tagName string, markup string, parseContext *ParseContext) TagBase {
 	return TagBase{
-		name:         tagName,
-		markup:       markup,
-		parseContext: parseContext,
-		line:         parseContext.LineNumber,
+		name:   tagName,
+		markup: markup,
+		line:   parseContext.LineNumber,
 	}
 }
 
@@ -105,14 +103,6 @@ func (t *TagBase) IsBlank() bool {
 // RenderToOutputBuffer maneja la escritura en el buffer.
 func (t *TagBase) RenderToOutputBuffer(context *Context, output *strings.Builder) error {
 	return nil
-}
-
-func (t *TagBase) SafeParseExpression(parser *Parser) (interface{}, error) {
-	return t.parseContext.SafeParseExpression(parser)
-}
-
-func (t *TagBase) ParseExpression(markup string, safe bool) (interface{}, error) {
-	return t.parseContext.ParseExpression(markup, safe)
 }
 
 func WrapWithDisabler(originalFactory TagFactory) TagFactory {
