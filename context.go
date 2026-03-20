@@ -3,6 +3,8 @@ package liquid
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/go-liquid/internal/runtime"
 )
 
 // Context representa el estado de ejecución y resolución de variables.
@@ -11,10 +13,10 @@ type Context struct {
 	Environments       []map[string]interface{}
 	StaticEnvironments []map[string]interface{}
 	Scopes             []map[string]interface{}
-	Registers          *Registers
+	Registers          *runtime.Registers
 	Errors             []error
 	Warnings           []error
-	ResourceLimits     *ResourceLimits
+	ResourceLimits     *runtime.ResourceLimits
 	ExceptionRenderer  ExceptionRenderer
 	TemplateName       string
 	Partial            bool
@@ -36,7 +38,7 @@ func BuildContext(
 	outerScope map[string]interface{},
 	registers map[string]interface{},
 	rethrowErrors bool,
-	resourceLimits *ResourceLimits,
+	resourceLimits *runtime.ResourceLimits,
 	staticEnvironments map[string]interface{},
 ) *Context {
 	return NewContext(
@@ -56,7 +58,7 @@ func NewContext(
 	outerScope map[string]interface{},
 	registers map[string]interface{},
 	rethrowErrors bool,
-	resourceLimits *ResourceLimits,
+	resourceLimits *runtime.ResourceLimits,
 	staticEnvironments []map[string]interface{},
 	environment *Environment,
 ) *Context {
@@ -72,7 +74,7 @@ func NewContext(
 		Environments:       environments,
 		StaticEnvironments: staticEnvironments,
 		Scopes:             []map[string]interface{}{outerScope},
-		Registers:          NewRegisters(registers),
+		Registers:          runtime.NewRegisters(registers),
 		Errors:             []error{},
 		Warnings:           []error{},
 		Partial:            false,
@@ -84,7 +86,7 @@ func NewContext(
 	}
 
 	if ctx.ResourceLimits == nil {
-		ctx.ResourceLimits = NewResourceLimits(environment.DefaultResourceLimits)
+		ctx.ResourceLimits = runtime.NewResourceLimits(environment.DefaultResourceLimits)
 	}
 
 	// Configuración de registros estáticos obligatorios
@@ -272,7 +274,7 @@ func (c *Context) NewIsolatedSubcontext() *Context {
 	sub := NewContext(
 		c.Environments,
 		make(map[string]interface{}),
-		c.Registers.static,
+		c.Registers.Static(),
 		false,
 		c.ResourceLimits,
 		c.StaticEnvironments,

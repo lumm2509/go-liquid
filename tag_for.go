@@ -3,6 +3,8 @@ package liquid
 import (
 	"regexp"
 	"strings"
+
+	"github.com/go-liquid/internal/runtime"
 )
 
 var ForSyntax = regexp.MustCompile(`^([\w\-]+)\s+in\s+(.+)$`)
@@ -115,7 +117,7 @@ func (f *For) RenderToOutputBuffer(context *Context, output *strings.Builder) er
 			}
 			if context.Interrupt() {
 				interrupt := context.PopInterrupt()
-				if _, ok := interrupt.(*BreakInterrupt); ok {
+				if _, ok := interrupt.(*runtime.BreakInterrupt); ok {
 					return nil
 				}
 			}
