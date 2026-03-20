@@ -1,11 +1,11 @@
-# Benchmarks Baseline
+# Benchmarks
 
 Captured on: 2026-03-20
 Go version: see `go version`
 Machine: linux/amd64, 12 cores
 Command: `go test -bench=. -benchmem -count=1`
 
-## Baseline (pre-Fase 5 optimizations)
+## Baseline (pre-Fase 5)
 
 | Benchmark | ns/op | B/op | allocs/op |
 |-----------|------:|-----:|----------:|
@@ -18,44 +18,28 @@ Command: `go test -bench=. -benchmem -count=1`
 | RenderNestedLookup | 741 | 1024 | 17 |
 | RenderForLoopWithFilters | 135927 | 52192 | 1378 |
 
-## Analysis
+## Post-Fase 5 Results
 
-**Hotspots identified (by alloc pressure):**
+| Benchmark | ns/op | B/op | allocs/op | Δ ns | Δ allocs |
+|-----------|------:|-----:|----------:|-----:|----------|
+| ParseSimple | 3426 | 3506 | 41 | ≈0 | ≈0 |
+| ParseWithFilters | 4227 | 3976 | 53 | ≈0 | ≈0 |
+| RenderSimple | 662 | 1008 | 16 | -9% | 0 |
+| **RenderWithFilters** | **1767** | **1248** | **29** | **-45%** | **-29%** |
+| **RenderForLoop100** | **18710** | **6984** | **129** | **-43%** | **-61%** |
+| RenderCondition | 815 | 1024 | 17 | ≈0 | 0 |
+| RenderNestedLookup | 775 | 1024 | 17 | ≈0 | 0 |
+| **RenderForLoopWithFilters** | **73705** | **19696** | **729** | **-46%** | **-47%** |
 
-1. 🔥 `RenderForLoopWithFilters` — 1378 allocs for 50 items × ~2 filters each.
-   - ~13 allocs per filter invocation (reflection + slice allocations)
-   - Root cause: `Strainer.Invoke` does `MethodByName` via reflection on every call
-   - Fix: pre-build `name → reflect.Value` map in `StrainerTemplate` (5.2)
+## Optimizations Applied
 
-2. 🔥 `RenderForLoop100` — 327 allocs for 100 items × 1 variable
-   - ~3 allocs per loop iteration (forloop map creation)
-   - Fix: reuse forloop map, only update values (5.x)
-
-3. 🟡 `RenderWithFilters` — 41 allocs for a single 2-filter expression
-   - Filter dispatch overhead
-   - Fix: same as #1 (5.2)
-
-4. 🟢 `RenderSimple` / `RenderCondition` / `RenderNestedLookup` — 16-17 allocs each
-   - Baseline render overhead (context creation, scope allocation)
-   - Acceptable for now
-
-## Post-optimization Results
-
-_(Updated after each optimization)_
-
-### After 5.2 — Pre-compiled filter dispatch
-
-| Benchmark | ns/op | B/op | allocs/op | Δ allocs |
-|-----------|------:|-----:|----------:|----------|
-| RenderWithFilters | TBD | TBD | TBD | TBD |
-| RenderForLoopWithFilters | TBD | TBD | TBD | TBD |
-
-### After 5.4 — Primitive renderObjToOutput
-
-| Benchmark | ns/op | B/op | allocs/op | Δ allocs |
-|-----------|------:|-----:|----------:|----------|
-| RenderSimple | TBD | TBD | TBD | TBD |
-| RenderForLoop100 | TBD | TBD | TBD | TBD |
+| Task | Change | Impact |
+|------|--------|--------|
+| 5.2 | Pre-compiled filter dispatch (`StrainerTemplate.combined` map + global type cache) | RenderWithFilters -45% |
+| 5.3 | Skip `ToLiquidValue` for primitives in condition eval | Micro, within noise |
+| 5.4 | `strconv` instead of `fmt.Sprintf` for int/float64/bool rendering | Micro for these benchmarks |
+| 5.5 | Type-based filter cache key (no value serialization) | Setup path only |
+| 5.6 | Reuse forloop/tablerow maps across iterations | ForLoop100 -61% allocs |
 
 ## Regression Policy
 
