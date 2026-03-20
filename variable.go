@@ -9,11 +9,10 @@ import (
 )
 
 type Variable struct {
-	Markup       string
-	Name         interface{}
-	Filters      [][]interface{}
-	lineNumber   int
-	ParseContext *ParseContext
+	Markup     string
+	Name       interface{}
+	Filters    [][]interface{}
+	lineNumber int
 }
 
 type NamedArguments map[string]interface{}
@@ -28,15 +27,14 @@ func (n NamedArguments) Evaluate(ctx *Context) interface{} {
 
 func NewVariable(markup string, parseContext *ParseContext) *Variable {
 	v := &Variable{
-		Markup:       markup,
-		ParseContext: parseContext,
-		lineNumber:   parseContext.LineNumber,
+		Markup:     markup,
+		lineNumber: parseContext.LineNumber,
 	}
-	v.Parse(markup)
+	v.parse(markup, parseContext)
 	return v
 }
 
-func (v *Variable) Parse(markup string) {
+func (v *Variable) parse(markup string, parseContext *ParseContext) {
 	// Simple parser for variables with filters
 	// In Ruby: strict_parse_with_error_mode_fallback(markup)
 
@@ -71,18 +69,18 @@ func (v *Variable) Parse(markup string) {
 
 	namePart := strings.TrimSpace(parts[0])
 
-	name, _ := ParseExpression(namePart, v.ParseContext.stringScanner, v.ParseContext.expressionCache)
+	name, _ := ParseExpression(namePart, parseContext.stringScanner, parseContext.expressionCache)
 	v.Name = name
 
 	v.Filters = make([][]interface{}, 0)
 	for _, filterPart := range parts[1:] {
-		v.Filters = append(v.Filters, v.parseFilter(filterPart))
+		v.Filters = append(v.Filters, v.parseFilter(filterPart, parseContext))
 	}
 }
 
 var NamedArgRegex = regexp.MustCompile(`^(\w+):\s*(.*)$`)
 
-func (v *Variable) parseFilter(markup string) []interface{} {
+func (v *Variable) parseFilter(markup string, parseContext *ParseContext) []interface{} {
 	markup = strings.TrimSpace(markup)
 
 	// Buscar el primer ":" que NO esté dentro de comillas
@@ -157,10 +155,10 @@ func (v *Variable) parseFilter(markup string) []interface{} {
 			if matches := NamedArgRegex.FindStringSubmatch(argPart); matches != nil {
 				key := matches[1]
 				valMarkup := matches[2]
-				expr, _ := ParseExpression(valMarkup, v.ParseContext.stringScanner, v.ParseContext.expressionCache)
+				expr, _ := ParseExpression(valMarkup, parseContext.stringScanner, parseContext.expressionCache)
 				namedArgs[key] = expr
 			} else {
-				expr, _ := ParseExpression(argPart, v.ParseContext.stringScanner, v.ParseContext.expressionCache)
+				expr, _ := ParseExpression(argPart, parseContext.stringScanner, parseContext.expressionCache)
 				args = append(args, expr)
 			}
 		}
