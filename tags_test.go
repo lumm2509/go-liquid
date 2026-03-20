@@ -212,3 +212,15 @@ func TestIncludeWithMissingTemplate(t *testing.T) {
 	require.Error(t, err, "expected error when template file is not found")
 	require.NotContains(t, err.Error(), "interface conversion", "error must be descriptive, not a runtime panic message")
 }
+
+func TestIncludeWithNoFileSystem(t *testing.T) {
+	// env.FileSystem = nil triggers the "no file system configured" error path.
+	env := NewEnvironment()
+	env.FileSystem = nil
+
+	tmpl, err := ParseWithEnv(`{% include 'partial' %}`, env, nil)
+	require.NoError(t, err)
+	_, err = tmpl.Render(nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no file system configured", "error must identify the missing FileSystem configuration")
+}

@@ -99,7 +99,7 @@ func (r *Render) RenderToOutputBuffer(context *Context, output *strings.Builder)
 		return nil
 	}
 
-	partial, err := LoadPartial(templateName, context, r.parseContext.(*ParseContext))
+	partial, err := loadPartial(templateName, context, r.parseContext.(*ParseContext))
 	if err != nil {
 		return err
 	}

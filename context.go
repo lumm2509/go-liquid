@@ -311,10 +311,16 @@ func (c *Context) checkOverflow() {
 }
 
 func (c *Context) tryVariableFindInEnvironments(key string, raiseOnNotFound bool) (interface{}, bool, error) {
-	allEnvs := make([]map[string]interface{}, len(c.Environments)+len(c.StaticEnvironments))
-	copy(allEnvs, c.Environments)
-	copy(allEnvs[len(c.Environments):], c.StaticEnvironments)
-	for _, env := range allEnvs {
+	for _, env := range c.Environments {
+		val, err := c.lookupAndEvaluate(env, key, raiseOnNotFound)
+		if err != nil {
+			return nil, false, err
+		}
+		if val != nil {
+			return val, true, nil
+		}
+	}
+	for _, env := range c.StaticEnvironments {
 		val, err := c.lookupAndEvaluate(env, key, raiseOnNotFound)
 		if err != nil {
 			return nil, false, err

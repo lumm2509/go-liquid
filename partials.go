@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func LoadPartial(templateName string, context *Context, parseContext *ParseContext) (*Template, error) {
+func loadPartial(templateName string, context *Context, parseContext *ParseContext) (*Template, error) {
 	cachedPartials, ok := context.Registers.Get("cached_partials").(map[string]interface{})
 	if !ok {
 		cachedPartials = make(map[string]interface{})

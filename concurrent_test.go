@@ -176,3 +176,36 @@ func TestConcurrentRegisterTagAndRender(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TestConcurrentIncrementIsolation verifica que increment/decrement con la misma
+// variable en renders concurrentes no se interfieren entre sí.
+// El contador vive en los Registers de cada render, no en el Template.
+func TestConcurrentIncrementIsolation(t *testing.T) {
+	tmpl, err := Parse(`{% increment x %}{% increment x %}{% increment x %}`, nil)
+	require.NoError(t, err)
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	errors := make(chan error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out, err := tmpl.Render(nil, nil)
+			if err != nil {
+				errors <- err
+				return
+			}
+			if out != "012" {
+				errors <- fmt.Errorf("expected \"012\", got %q", out)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		t.Error(err)
+	}
+}

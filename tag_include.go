@@ -35,7 +35,7 @@ func (i *Include) RenderToOutputBuffer(context *Context, output *strings.Builder
 		return &ArgumentError{BaseError: BaseError{Message: "Illegal template name"}}
 	}
 
-	partial, err := LoadPartial(templateName, context, i.parseContext.(*ParseContext))
+	partial, err := loadPartial(templateName, context, i.parseContext.(*ParseContext))
 	if err != nil {
 		return err
 	}

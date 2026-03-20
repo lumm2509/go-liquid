@@ -1,14 +1,6 @@
 package liquid
 
 
-// modos de error internos del ParseContext (implementación, no API pública)
-const (
-	errorModeLazy    = "lazy"
-	errorModeWarn    = "warn"
-	errorModeStrict  = "strict"
-	errorModeStrict2 = "strict2"
-)
-
 type ParseContext struct {
 	Locale         *I18n // Asumiendo estructura de I18n
 	LineNumber     int

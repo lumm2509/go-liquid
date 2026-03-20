@@ -26,12 +26,14 @@ type DebugLogger interface {
 // Environment contiene toda la configuración global
 type Environment struct {
 	ErrorMode             string
-	Tags                  map[string]TagFactory
-	StrainerTemplate      *StrainerTemplate
 	ExceptionRenderer     ExceptionRenderer
 	FileSystem            FileSystem
 	DefaultResourceLimits map[string]interface{}
 	Logger                DebugLogger // nil = no-op
+
+	// Privados: usar RegisterTag / RegisterFilter / TagForName / FilterMethodNames
+	tags             map[string]TagFactory
+	strainerTemplate *StrainerTemplate
 
 	// Caché para combinaciones de filtros específicos
 	strainerTemplateClassCache map[string]*StrainerTemplate
@@ -66,7 +68,7 @@ func DefaultEnvironment() *Environment {
 func NewEnvironment() *Environment {
 	env := &Environment{
 		ErrorMode:                  "lax",
-		Tags:                       make(map[string]TagFactory),
+		tags:                       make(map[string]TagFactory),
 		ExceptionRenderer:          func(err error) error { return err },
 		FileSystem:                 &BlankFileSystem{},
 		DefaultResourceLimits:      make(map[string]interface{}),
@@ -75,12 +77,12 @@ func NewEnvironment() *Environment {
 
 	// Copiar tags estándar (asumiendo que Tags.StandardTags está definido en otro archivo)
 	for k, v := range StandardTags {
-		env.Tags[k] = v
+		env.tags[k] = v
 	}
 
 	// Inicializar el StrainerTemplate con filtros estándar
-	env.StrainerTemplate = NewStrainerTemplate()
-	env.StrainerTemplate.AddFilter(StandardFilters{})
+	env.strainerTemplate = NewStrainerTemplate()
+	env.strainerTemplate.AddFilter(StandardFilters{})
 
 	return env
 }
@@ -108,7 +110,7 @@ func (e *Environment) RegisterTag(name string, factory TagFactory) error {
 		}
 		return fmt.Errorf("can't modify frozen environment, skipping tag %s", name)
 	}
-	e.Tags[name] = factory
+	e.tags[name] = factory
 	return nil
 }
 
@@ -117,7 +119,7 @@ func (e *Environment) RegisterFilter(filter interface{}) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.strainerTemplateClassCache = make(map[string]*StrainerTemplate) // Clear cache
-	e.StrainerTemplate.AddFilter(filter)
+	e.strainerTemplate.AddFilter(filter)
 }
 
 // RegisterFilters registra múltiples filtros
@@ -126,14 +128,14 @@ func (e *Environment) RegisterFilters(filters []interface{}) {
 	defer e.mu.Unlock()
 	e.strainerTemplateClassCache = make(map[string]*StrainerTemplate)
 	for _, f := range filters {
-		e.StrainerTemplate.AddFilter(f)
+		e.strainerTemplate.AddFilter(f)
 	}
 }
 
 // CreateStrainer crea una instancia de strainer (procesador de filtros) para un contexto
 func (e *Environment) CreateStrainer(context *Context, filters []interface{}) *Strainer {
 	if len(filters) == 0 {
-		return e.StrainerTemplate.NewStrainer(context)
+		return e.strainerTemplate.NewStrainer(context)
 	}
 
 	// Generar una llave para el cache basada en los filtros adicionales
@@ -148,7 +150,7 @@ func (e *Environment) CreateStrainer(context *Context, filters []interface{}) *S
 		// Double-check locking
 		if template, ok = e.strainerTemplateClassCache[cacheKey]; !ok {
 			// Simular la herencia de Ruby creando un nuevo template que extiende el base
-			template = e.StrainerTemplate.Clone()
+			template = e.strainerTemplate.Clone()
 			for _, f := range filters {
 				template.AddFilter(f)
 			}
@@ -162,14 +164,14 @@ func (e *Environment) CreateStrainer(context *Context, filters []interface{}) *S
 
 // FilterMethodNames devuelve los nombres de métodos disponibles
 func (e *Environment) FilterMethodNames() []string {
-	return e.StrainerTemplate.FilterMethodNames()
+	return e.strainerTemplate.FilterMethodNames()
 }
 
 // TagForName devuelve la factoría de tags asociada a un nombre
 func (e *Environment) TagForName(name string) TagFactory {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.Tags[name]
+	return e.tags[name]
 }
 
 // Freeze marca el entorno como inmutable
