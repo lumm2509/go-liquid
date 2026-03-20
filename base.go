@@ -72,9 +72,6 @@ var (
 	VariableParser = regexp.MustCompile(`\[[^\[\]]+\]|` + variableSegment.String() + `+\??`)
 )
 
-type RaiseExceptionFunc func(err error)
-
-var DefaultErrorHandler RaiseExceptionFunc = func(err error) {}
 
 // Constructor wrappers — allow root-package code to call these without
 // explicit import of internal/parser.

@@ -201,3 +201,14 @@ func TestInlineCommentTag(t *testing.T) {
 	require.Equal(t, "", mustRender(t, `{% # this is a comment %}`, nil))
 	require.Equal(t, "hello", mustRender(t, `{% # comment %}hello`, nil))
 }
+
+// --- include / partial loading ---
+
+func TestIncludeWithMissingTemplate(t *testing.T) {
+	// BlankFileSystem (default) returns a descriptive error — must NOT panic.
+	tmpl, err := Parse(`{% include 'nonexistent' %}`, nil)
+	require.NoError(t, err)
+	_, err = tmpl.Render(nil, nil)
+	require.Error(t, err, "expected error when template file is not found")
+	require.NotContains(t, err.Error(), "interface conversion", "error must be descriptive, not a runtime panic message")
+}

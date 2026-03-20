@@ -92,7 +92,7 @@ func NewContext(
 	// Configuración de registros estáticos obligatorios
 	ctx.Registers.SetStatic("cached_partials", make(map[string]interface{}))
 	ctx.Registers.SetStatic("file_system", environment.FileSystem)
-	ctx.Registers.SetStatic("template_factory", NewTemplateFactory())
+	ctx.Registers.SetStatic("template_factory", TemplateFactory(defaultTemplateFactory))
 
 	ctx.ExceptionRenderer = environment.ExceptionRenderer
 	if rethrowErrors {
@@ -131,8 +131,8 @@ func (c *Context) Stack(newScope map[string]interface{}, block func() error) err
 // --- Resolución de Variables ---
 
 func (c *Context) Get(expression string) interface{} {
-	// En Ruby: evaluate(Expression.parse(expression, @string_scanner))
-	expr, _ := ParseExpression(expression, NewStringScanner(""), nil)
+	// Reuses a fresh scanner per call; avoids allocating a persistent scanner on Context.
+	expr, _ := ParseExpression(expression, NewStringScanner(expression), nil)
 	return c.Evaluate(expr)
 }
 

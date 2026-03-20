@@ -31,12 +31,28 @@ type RenderOptions struct {
 }
 
 // ParseOptions configura el comportamiento de Parse / ParseWithEnv.
+// Úsalo con ParseWithOptions para tipado seguro; o pasa nil para defaults.
 type ParseOptions struct {
 	// ErrorMode controla cómo se reportan errores de sintaxis.
 	ErrorMode ErrorMode
 
 	// Locale configura las traducciones para tags que soportan i18n.
 	Locale *I18n
+}
+
+// toMap convierte ParseOptions al formato interno de mapa de opciones.
+func (o *ParseOptions) toMap() map[string]interface{} {
+	m := make(map[string]interface{})
+	switch o.ErrorMode {
+	case ErrorModeStrict:
+		m["error_mode"] = "strict"
+	default:
+		m["error_mode"] = "lax"
+	}
+	if o.Locale != nil {
+		m["locale"] = o.Locale
+	}
+	return m
 }
 
 // renderOptionsFromMap convierte el formato legacy map[string]interface{}

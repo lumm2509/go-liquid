@@ -48,6 +48,20 @@ func ParseWithEnv(source string, env *Environment, options map[string]interface{
 	return t.Parse(source, options)
 }
 
+// ParseWithOptions parsea source usando un Environment y opciones tipadas.
+// Es la forma idiomática de pasar opciones de parseo; equivalente a
+// ParseWithEnv con opciones en mapa pero con tipos seguros.
+func ParseWithOptions(source string, env *Environment, opts *ParseOptions) (*Template, error) {
+	if env == nil {
+		env = NewEnvironment()
+	}
+	var m map[string]interface{}
+	if opts != nil {
+		m = opts.toMap()
+	}
+	return ParseWithEnv(source, env, m)
+}
+
 func (t *Template) Parse(source string, options map[string]interface{}) (templateResult *Template, err error) {
 	defer func() {
 		if r := recover(); r != nil {

@@ -38,11 +38,11 @@ func LoadPartial(templateName string, context *Context, parseContext *ParseConte
 	parseContext.SetPartial(true)
 	defer parseContext.SetPartial(false)
 
-	templateFactory, ok := context.Registers.Get("template_factory").(*TemplateFactory)
+	templateFactory, ok := context.Registers.Get("template_factory").(TemplateFactory)
 	if !ok {
 		return nil, &InternalError{BaseError: BaseError{Message: "template_factory not registered"}}
 	}
-	template := templateFactory.For(templateName)
+	template := templateFactory(templateName)
 	template.Environment = context.Environment
 
 	_, err = template.Parse(source, parseContext.options)
