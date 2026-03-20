@@ -218,7 +218,7 @@ func (c *Context) lookupAndEvaluate(obj map[string]interface{}, key string, rais
 			results := rv.Call([]reflect.Value{reflect.ValueOf(c)})
 			value = results[0].Interface()
 		}
-		obj[key] = value // Cachear resultado
+		// No cachear: mutaría el mapa del usuario, violando el contrato de pureza.
 	}
 
 	return value, nil

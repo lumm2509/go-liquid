@@ -32,9 +32,12 @@ type ParseContext struct {
 
 // NewParseContext equivale a initialize
 func NewParseContext(options map[string]interface{}) *ParseContext {
-	if options == nil {
-		options = make(map[string]interface{})
+	// Copiar el mapa para no mutar el del caller (contrato de pureza).
+	optsCopy := make(map[string]interface{}, len(options))
+	for k, v := range options {
+		optsCopy[k] = v
 	}
+	options = optsCopy
 
 	// 1. Obtener Environment
 	env, ok := options["environment"].(*Environment)
@@ -44,7 +47,7 @@ func NewParseContext(options map[string]interface{}) *ParseContext {
 
 	pc := &ParseContext{
 		Environment:     env,
-		templateOptions: options, // En Go, los maps son referencias, no hace falta dup() a menos que se modifique
+		templateOptions: options,
 		Warnings:        []error{},
 		stringScanner:   NewStringScanner(""), // Scanner compartido inicializado vacío
 		Depth:           0,

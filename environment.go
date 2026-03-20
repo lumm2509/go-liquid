@@ -174,6 +174,8 @@ func (e *Environment) TagForName(name string) TagFactory {
 
 // Freeze marca el entorno como inmutable
 func (e *Environment) Freeze() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.frozen = true
 }
 
