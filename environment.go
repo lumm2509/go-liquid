@@ -93,16 +93,6 @@ func BuildEnvironment(fn func(*Environment)) *Environment {
 	return env
 }
 
-// dangerouslyOverride permite cambiar el entorno global temporalmente.
-// Solo para uso interno en tests. No es thread-safe.
-// En producción, usa ParseWithEnv para pasar un Environment explícito.
-func dangerouslyOverride(env *Environment, fn func()) {
-	old := defaultEnv
-	defaultEnv = env
-	defer func() { defaultEnv = old }()
-	fn()
-}
-
 // RegisterTag registra una nueva etiqueta
 func (e *Environment) RegisterTag(name string, factory TagFactory) error {
 	e.mu.Lock()
