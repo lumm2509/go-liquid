@@ -2,6 +2,8 @@ package liquid
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -175,8 +177,16 @@ func (e *Environment) Freeze() {
 	e.frozen = true
 }
 
-// Helper interno para generar llaves de caché
+// Helper interno para generar llaves de caché basada en tipos (no en valores).
+// Determinístico, sin colisiones entre tipos distintos.
 func generateFilterCacheKey(filters []interface{}) string {
-	// Aquí se debería generar un hash o string único basado en los tipos de los filtros
-	return fmt.Sprintf("%v", filters)
+	var sb strings.Builder
+	for _, f := range filters {
+		t := reflect.TypeOf(f)
+		sb.WriteString(t.PkgPath())
+		sb.WriteByte('/')
+		sb.WriteString(t.Name())
+		sb.WriteByte('|')
+	}
+	return sb.String()
 }
