@@ -156,7 +156,7 @@ El costo de ignorar esta regla es conocido: entras en loops de regresión donde 
 | 0 | Estabilización de emergencia | ✅ Completado | Tapar lo que puede explotar en producción hoy |
 | 0.5 | Observabilidad mínima | ✅ Completado | Ver qué pasa cuando algo falla, sin `fmt.Printf` |
 | 1 | Red de seguridad | ✅ Completado | Tests de comportamiento e invariantes internas |
-| 2 | API pública limpia | ✅ Completado | Contrato claro, singleton eliminado |
+| 2 | API pública limpia | ✅ Completado | Contrato claro, singleton encapsulado (DefaultEnvironment persiste como fallback para nil env) |
 | 3A | Consistencia interna | ✅ Completado | Semántica uniforme en todo el engine |
 | 3B | Spec compliance | ✅ Completado | Compatibilidad real con Shopify Liquid |
 | 4 | Concurrencia segura | ✅ Completado | `Template` inmutable, `go test -race` limpio |
@@ -774,7 +774,7 @@ func ParseWithEnv(source string, env *Environment, options map[string]interface{
 
 `DefaultEnvironment()` puede mantenerse para casos donde el consumer quiere un singleton compartido, pero no debe ser el default invisible de `Parse`.
 
-> ✅ **Evidencia:** `template.go` — `Parse` delega a `ParseWithEnv(source, NewEnvironment(), options)`. `ParseWithEnv` construye el template con el env explícito recibido. `DefaultEnvironment()` sigue existiendo pero ya no es invocado por `Parse`.
+> ✅ **Evidencia:** `template.go` — `Parse` delega a `ParseWithEnv(source, NewEnvironment(), options)`. `ParseWithEnv` construye el template con el env explícito recibido. `DefaultEnvironment()` sigue existiendo y es el fallback en 3 lugares cuando se pasa env=nil (`template.go:NewTemplate`, `context.go:NewContext`, `parse_context.go:NewParseContext`). El singleton no fue eliminado — fue encapsulado como fallback. La afirmación "singleton eliminado" en el tracking summary era incorrecta.
 
 **2.3 ✅ — Convertir `DangerouslyOverride` en función interna de tests**
 
