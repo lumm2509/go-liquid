@@ -65,22 +65,28 @@ func (t *TableRow) RenderToOutputBuffer(context *Context, output *strings.Builde
 
 	output.WriteString("<tr class=\"row1\">\n")
 
+	// Pre-allocate tablerow map once and reuse across iterations.
+	tablerowMap := map[string]interface{}{
+		"col": 0, "col0": 0, "row": 0,
+		"first": false, "last": false, "length": length,
+		"index": 0, "index0": 0,
+	}
+
 	err := context.Stack(nil, func() error {
+		context.Scopes[0]["tablerow"] = tablerowMap
 		for i, item := range segment {
-			col := (i % cols) + 1  // 1-based
-			row := (i / cols) + 1  // 1-based
+			col := (i % cols) + 1
+			row := (i / cols) + 1
+
+			tablerowMap["col"] = col
+			tablerowMap["col0"] = col - 1
+			tablerowMap["row"] = row
+			tablerowMap["first"] = i == 0
+			tablerowMap["last"] = i == length-1
+			tablerowMap["index"] = i + 1
+			tablerowMap["index0"] = i
 
 			context.Scopes[0][t.VariableName] = item
-			context.Scopes[0]["tablerow"] = map[string]interface{}{
-				"col":    col,
-				"col0":   col - 1,
-				"row":    row,
-				"first":  i == 0,
-				"last":   i == length-1,
-				"length": length,
-				"index":  i + 1,
-				"index0": i,
-			}
 
 			output.WriteString(fmt.Sprintf("<td class=\"col%d\">", col))
 

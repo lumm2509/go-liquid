@@ -90,19 +90,24 @@ func (f *For) RenderToOutputBuffer(context *Context, output *strings.Builder) er
 
 	length := len(segment)
 
+	// Pre-allocate forloop map once and reuse across iterations.
+	forloopMap := map[string]interface{}{
+		"index": 0, "index0": 0, "rindex": 0, "rindex0": 0,
+		"first": false, "last": false, "length": length,
+	}
+
 	return context.Stack(nil, func() error {
+		context.Scopes[0]["forloop"] = forloopMap
 		for i, item := range segment {
-			idx := i + 1 // 1-based
+			idx := i + 1
+			forloopMap["index"] = idx
+			forloopMap["index0"] = i
+			forloopMap["rindex"] = length - i
+			forloopMap["rindex0"] = length - i - 1
+			forloopMap["first"] = i == 0
+			forloopMap["last"] = i == length-1
+
 			context.Scopes[0][f.VariableName] = item
-			context.Scopes[0]["forloop"] = map[string]interface{}{
-				"index":   idx,
-				"index0":  i,
-				"rindex":  length - i,
-				"rindex0": length - i - 1,
-				"first":   i == 0,
-				"last":    i == length-1,
-				"length":  length,
-			}
 
 			err := f.Block.RenderToOutputBuffer(context, output)
 			if err != nil {
@@ -113,7 +118,6 @@ func (f *For) RenderToOutputBuffer(context *Context, output *strings.Builder) er
 				if _, ok := interrupt.(*BreakInterrupt); ok {
 					return nil
 				}
-				// ContinueInterrupt: descartar y continuar siguiente iteración
 			}
 		}
 		return nil
