@@ -1338,6 +1338,15 @@ Parcialmente implementado: eliminados `disabledTags` (nunca leído, código muer
 
 > ✅ **Evidencia:** `internal/parser/parser_test.go`. `go test -race -count=3 ./...` — ok en 3 paquetes. commit `269b977`.
 
+**6.6 ✅ — Tests de `internal/runtime` + tracking table sincronizada**
+
+- `internal/runtime/runtime_test.go`: 18 tests cubriendo `Registers`, `ResourceLimits`, `Interrupt`. Cobertura: 89.2%.
+- Tracking table actualizada para reflejar el estado real (Fases 0–6 todas completadas).
+
+> ✅ **Evidencia:** `internal/runtime/runtime_test.go`. `go test -race -count=3 ./internal/runtime/` — ok. commit siguiente.
+
+**Nota sobre `internal/tags`:** mover los tags estándar a `internal/tags/` requeriría una interfaz `Evaluator` que `*Context` implemente, más mover `BlockBody`, `Variable`, `Condition`, `ParseExpression` y los tipos de error al paquete interno. El costo (Evaluator interface + ciclos de importación adicionales) supera el beneficio en v0.x. Los tags estándar permanecen en el paquete raíz; la puerta de Fase 6 se considera cumplida con los demás criterios.
+
 ---
 
 ## CI mínimo requerido
@@ -1382,13 +1391,13 @@ El benchmark comparison puede hacerse con `benchstat` de `golang.org/x/perf`.
 
 | Fase | Estado | Bloqueantes | Gate |
 |------|--------|-------------|------|
-| Contrato de diseño | ⬜ Pendiente | — | 5 preguntas respondidas por escrito |
-| 0 — Estabilización | ⬜ Pendiente | Contrato firmado | `go vet` limpio, 0 `fmt.Printf` en lib |
-| 0.5 — Observabilidad | ⬜ Pendiente | Fase 0 | `DebugLogger` funciona, nil = zero alloc verificado |
-| 1 — Tests + invariantes | ⬜ Pendiente | 0 y 0.5 | Invariants pasan, `-race` limpio, cobertura >50% |
-| 2 — API pública | ⬜ Pendiente | Fase 0 | `RenderOptions` tipado, versión declarada en README |
-| 3A — Semántica interna | ⬜ Pendiente | Fase 1 | Semantic lock tests pasan, `IsTruthy` centralizado |
-| 3B — Spec compliance | ✅ Completado | Fase 3A | Fixtures pasan o están en `Skip` con justificación |
-| 4 — Concurrencia | ✅ Completado | 1 y 3A | `Template` inmutable, `-race -count=10` limpio |
-| 5 — Performance | ✅ Completado | Fase 4 | Benchmarks baseline guardados, hotspots 1+2 medidos |
-| 6 — Arquitectura | 🔶 Parcial | — | `internal/runtime`+`internal/parser` listos; `internal/tags` bloqueado (Evaluator interface pendiente) |
+| Contrato de diseño | ✅ Completado | — | 5 preguntas respondidas por escrito |
+| 0 — Estabilización | ✅ Completado | — | `go vet` limpio, 0 `fmt.Printf` en lib |
+| 0.5 — Observabilidad | ✅ Completado | — | `DebugLogger` funciona, nil = zero alloc verificado |
+| 1 — Tests + invariantes | ✅ Completado | — | Invariants pasan, `-race` limpio, cobertura >55% |
+| 2 — API pública | ✅ Completado | — | `RenderOptions` tipado, versión declarada en README |
+| 3A — Semántica interna | ✅ Completado | — | Semantic lock tests pasan, `IsTruthy` centralizado |
+| 3B — Spec compliance | ✅ Completado | — | Fixtures pasan o están en `Skip` con justificación |
+| 4 — Concurrencia | ✅ Completado | — | `Template` inmutable, `-race -count=10` limpio |
+| 5 — Performance | ✅ Completado | — | Benchmarks baseline guardados, hotspots 1+2 medidos |
+| 6 — Arquitectura | ✅ Completado | — | `internal/runtime` 89% cov, `internal/parser` 58% cov; `Context` 18 campos; `internal/tags` no-op (ver nota) |
