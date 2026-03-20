@@ -161,7 +161,7 @@ El costo de ignorar esta regla es conocido: entras en loops de regresión donde 
 | 3B | Spec compliance | ✅ Completado | Compatibilidad real con Shopify Liquid |
 | 4 | Concurrencia segura | ✅ Completado | `Template` inmutable, `go test -race` limpio |
 | 5 | Performance | ✅ Completado | Benchmarks, allocaciones justificadas |
-| 6 | Arquitectura interna | 🔶 Parcial | 6.2✅ StringNode, 6.3✅ ParseContext, 6.4✅ Context trim; 6.1 (`internal/`) pendiente |
+| 6 | Arquitectura interna | 🔶 Parcial | 6.1✅ `internal/runtime`, 6.2✅ StringNode, 6.3✅ ParseContext, 6.4✅ Context trim; `internal/parser` bloqueado (ver 6.1) |
 
 ---
 
@@ -1267,34 +1267,27 @@ La regla es simple: `internal/` contiene implementación. El paquete `liquid/` c
 
 Antes de mover cada archivo, pregunta: "¿puede alguien de fuera necesitar esto para extender el engine?" Si sí, se queda en `liquid/`. Si no, va a `internal/`.
 
-**6.1 — Introducir `internal/` de forma incremental**
+**6.1 🔶 — Introducir `internal/` de forma incremental**
 
-No mover todo de golpe. Orden sugerido por impacto:
+`internal/runtime/` completado: `Registers`, `ResourceLimits`, `Interrupt/BreakInterrupt/ContinueInterrupt` movidos sin circular deps. commit `a583887`.
 
-```
-Semana 1:
-  internal/parser/     ← lexer.go, tokenizer.go, parser.go,
-                          string_scanner.go, expression.go
-  (bajo riesgo: solo se usa durante Parse, fácil de aislar)
-  (los consumers nunca necesitan construir un Tokenizer)
+> ✅ **Evidencia:** `internal/runtime/` — 3 archivos. `context.go`, `template.go`, `tag_for.go`, `tag_interrupts.go` actualizados con import.
 
-Semana 2:
-  internal/runtime/    ← registers.go, resource_limits.go, interrupts.go
-  (medio riesgo: Context depende de ellos, pero son internos al runtime)
-  (los consumers no necesitan Registers ni ResourceLimits directamente)
+Los demás grupos están **bloqueados por dependencias circulares**:
 
-Semana 3:
-  internal/tags/       ← todos los tag_*.go
-  (mayor esfuerzo: 22 archivos, pero todos siguen el mismo patrón)
-  (TagBase va a internal/, TagFactory y Tag interfaces se quedan en liquid/)
+- `internal/parser/` — `lexer.go` usa `SyntaxError` (definida en `errors.go`, API pública). `expression.go` usa `NewVariableLookup` / `ParseRangeLookup` que dependen de `*Context`. Cualquier intento de mover los archivos de parser crea un ciclo: `liquid` → `internal/parser` → `liquid`.
 
-Semana 4:
-  internal/filters/    ← standard_filters.go, strainer_template.go
-  internal/util/       ← condition.go, variable_lookup.go, range_lookup.go, utils.go
-  (StandardFilters va a internal/, el mecanismo de RegisterFilter se queda en liquid/)
-```
+- `internal/tags/` — Los tags usan `ParseContext`, `BlockBody`, `Context`, `Tag`, `ParseExpression`... todos en el paquete raíz. Moverlos requiere primero resolver el triángulo `expression.go ↔ variable_lookup.go ↔ context.go`.
 
-Cada movimiento requiere que todos los tests existentes sigan pasando.
+- `internal/filters/` — `strainer_template.go` usa `*Context` directamente.
+
+**Prerequisito para desbloquear las fases restantes:**
+
+Antes de poder mover parser/tags/filters a `internal/`, se necesita:
+1. Extraer los tipos de error (`BaseError`, `SyntaxError`) a un paquete `internal/errtypes/` que tanto `liquid` como `internal/parser` puedan importar sin ciclo.
+2. Introducir una interfaz `Evaluator` que `*Context` implemente, para romper la dependencia `variable_lookup.go → *Context` sin importar el paquete raíz.
+
+Esto es un refactor mayor y se deja para la siguiente fase de arquitectura.
 
 **6.2 ✅ — `StringNode` como tipo concreto**
 
