@@ -133,10 +133,12 @@ func TestSpecForLimit(t *testing.T) {
 			Expected: "ab",
 		},
 		{
+			// Ruby Liquid aplica limit/offset primero, luego reversed.
+			// limit:2 → ["a","b"], reversed → ["b","a"]
 			Name:     "limit con reversed",
 			Template: `{% for i in items reversed limit:2 %}{{ i }}{% endfor %}`,
 			Data:     map[string]interface{}{"items": []string{"a", "b", "c"}},
-			Expected: "cb",
+			Expected: "ba",
 		},
 		{
 			Name:     "forloop.length respeta limit",
