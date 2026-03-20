@@ -161,7 +161,7 @@ El costo de ignorar esta regla es conocido: entras en loops de regresión donde 
 | 3B | Spec compliance | ✅ Completado | Compatibilidad real con Shopify Liquid |
 | 4 | Concurrencia segura | ✅ Completado | `Template` inmutable, `go test -race` limpio |
 | 5 | Performance | ✅ Completado | Benchmarks, allocaciones justificadas |
-| 6 | Arquitectura interna | ⬜ Pendiente | `internal/`, boundaries respetados |
+| 6 | Arquitectura interna | 🔶 Parcial | 6.2✅ StringNode, 6.3✅ ParseContext, 6.4✅ Context trim; 6.1 (`internal/`) pendiente |
 
 ---
 
@@ -1296,28 +1296,15 @@ Semana 4:
 
 Cada movimiento requiere que todos los tests existentes sigan pasando.
 
-**6.2 — `StringNode` como tipo concreto**
+**6.2 ✅ — `StringNode` como tipo concreto**
 
-```go
-// internal/runtime/nodes.go
-type StringNode struct {
-    content string
-    line    int
-}
+`StringNode` introducido en `tag.go`. `BlockBody.NodeList` cambiado de `[]interface{}` a `[]Node`. El switch de type assertion en `RenderToOutputBuffer` eliminado.
 
-func (s *StringNode) RenderToOutputBuffer(_ *Context, output *strings.Builder) error {
-    output.WriteString(s.content)
-    return nil
-}
-func (s *StringNode) IsBlank() bool     { return strings.TrimSpace(s.content) == "" }
-func (s *StringNode) LineNumber() int   { return s.line }
-```
+> ✅ **Evidencia:** `tag.go` — `StringNode` struct con `TrimRight()`. `block_body.go` — `NodeList []Node`. commit `bba7883`.
 
-`BlockBody.NodeList` pasa de `[]interface{}` a `[]Node`. El switch de type assertion en `RenderToOutputBuffer` desaparece.
+**6.3 ✅ — Desacoplar `ParseContext` de `TagBase`**
 
-**6.3 — Desacoplar `ParseContext` de `TagBase`**
-
-Los tags solo necesitan de `ParseContext` durante su método `Parse()`. Una vez parseados, no necesitan cargar el `ParseContext` en memoria permanentemente.
+`parseContext *ParseContext` eliminado de `TagBase`. `Block` adquiere su propio campo `parseContext` (necesario durante `Parse()`). `Include` y `Render` adquieren campos explícitos (necesarios en render time para `LoadPartial`). Métodos helpers `SafeParseExpression`/`ParseExpression` en `TagBase` eliminados.
 
 ```go
 type TagBase struct {
@@ -1328,9 +1315,9 @@ type TagBase struct {
 }
 ```
 
-Los métodos de `TagBase` que delegaban a `parseContext` (`ParseExpression`, `SafeParseExpression`) reciben `ParseContext` como parámetro solo durante el parsing, no como campo.
+> ✅ **Evidencia:** `tag.go:64`, `block.go:10`, `tag_include.go:9`, `tag_render.go:14`. commit `11c57fa`.
 
-**6.4 — Reducir `Context` a sus responsabilidades reales**
+**6.4 ✅ — Reducir `Context` a sus responsabilidades reales**
 
 `Context` actualmente mezcla: estado de variables (scopes), configuración (environment, strictness), estado de ejecución (interrupts, errors), infraestructura de parsing (stringScanner), y recursos (resourceLimits, registers).
 
@@ -1357,6 +1344,10 @@ type Context struct {
     //             strainer (lazy init), disabledTags (movido a Environment)
 }
 ```
+
+Parcialmente implementado: eliminados `disabledTags` (nunca leído, código muerto) y `stringScanner` (solo usado en `Get()`, ahora local). `baseScopeDepth` y `strainer` siguen como campos privados — refactor pendiente para versión posterior.
+
+> ✅ **Evidencia (parcial):** `context.go:26-31` — dos campos eliminados. commit `cbce643`.
 
 ---
 
