@@ -28,6 +28,17 @@ func NewInclude(tagName string, markup string, parseContext engine.TagParseConte
 	return i, nil
 }
 
+// PreloadPartial implements engine.StaticPartialLoader.
+// Only triggers when TemplateName resolved to a string literal at parse time.
+func (i *Include) PreloadPartial(pc engine.TagParseContext) error {
+	name, ok := i.TemplateName.(string)
+	if !ok {
+		return nil // dynamic template name — cannot preload at parse time
+	}
+	_, err := loadPartialAtParseTime(name, pc)
+	return err
+}
+
 func (i *Include) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Builder) error {
 	templateNameVal := ctx.Evaluate(i.TemplateName)
 	templateName, ok := templateNameVal.(string)
@@ -35,7 +46,7 @@ func (i *Include) RenderToOutputBuffer(ctx engine.RenderContext, output *strings
 		return &engine.ArgumentError{BaseError: engine.BaseError{Message: "Illegal template name"}}
 	}
 
-	partial, err := loadPartial(templateName, ctx, i.parseContext.(*engine.ParseContext))
+	parsed, err := loadPartial(templateName, ctx, i.parseContext)
 	if err != nil {
 		return err
 	}
@@ -43,7 +54,7 @@ func (i *Include) RenderToOutputBuffer(ctx engine.RenderContext, output *strings
 	oldTemplateName := ctx.GetTemplateName()
 	oldPartial := ctx.IsPartial()
 
-	ctx.SetTemplateName(partial.Name)
+	ctx.SetTemplateName(parsed.Name)
 	ctx.SetPartial(true)
 	defer func() {
 		ctx.SetTemplateName(oldTemplateName)
@@ -54,6 +65,6 @@ func (i *Include) RenderToOutputBuffer(ctx engine.RenderContext, output *strings
 		for k, v := range i.Attributes {
 			ctx.Set(k, ctx.Evaluate(v))
 		}
-		return partial.Root.RenderToOutputBuffer(ctx, output)
+		return parsed.Root.RenderToOutputBuffer(ctx, output)
 	})
 }

@@ -7,21 +7,63 @@ import (
 	"github.com/go-liquid/internal/engine"
 )
 
-// PartialTemplate is a parsed partial (include/render target).
-type PartialTemplate struct {
-	Name string
-	Root *engine.Document
-}
-
-func loadPartial(templateName string, ctx engine.RenderContext, parseContext *engine.ParseContext) (*PartialTemplate, error) {
-	cachedPartials, ok := ctx.RegisterGet("cached_partials").(map[string]*PartialTemplate)
-	if !ok {
-		cachedPartials = make(map[string]*PartialTemplate)
-		ctx.RegisterSet("cached_partials", cachedPartials)
+// loadPartialAtParseTime resolves and caches a partial at parse time, using the
+// FileSystem from the Environment instead of a render-time RegisterGet call.
+// Returns nil, nil when no FileSystem is configured (silently skips preloading).
+// Returns an error when the FileSystem is configured but the file is missing or
+// has a parse error — so callers get a parse-time failure instead of a runtime one.
+func loadPartialAtParseTime(templateName string, parseContext engine.TagParseContext) (*engine.ParsedPartial, error) {
+	cacheKey := templateName + ":" + parseContext.GetErrorMode()
+	if cached, ok := parseContext.GetParsedPartial(cacheKey); ok {
+		return cached, nil
 	}
 
-	cacheKey := fmt.Sprintf("%s:%s", templateName, parseContext.ErrorMode)
-	if cached, found := cachedPartials[cacheKey]; found {
+	pc, ok := parseContext.(*engine.ParseContext)
+	if !ok {
+		// Custom TagParseContext — cannot preload, but not a caller error.
+		return nil, nil
+	}
+	if pc.Environment == nil {
+		return nil, fmt.Errorf("loadPartialAtParseTime: environment is nil — cannot preload partial %q", templateName)
+	}
+	fs := pc.Environment.GetFileSystem()
+	if fs == nil {
+		return nil, fmt.Errorf("loadPartialAtParseTime: no FileSystem configured in environment — cannot preload partial %q", templateName)
+	}
+
+	source, err := fs.ReadTemplateFile(templateName)
+	if err != nil {
+		if !strings.HasPrefix(templateName, "snippets/") {
+			source, err = fs.ReadTemplateFile("snippets/" + templateName)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	parseContext.SetPartial(true)
+	defer parseContext.SetPartial(false)
+
+	tokenizer := parseContext.NewTokenizer(source, 1, false)
+	doc, err := engine.ParseDocument(tokenizer, pc)
+	if err != nil {
+		return nil, err
+	}
+
+	partial := &engine.ParsedPartial{Name: templateName, Root: doc}
+	parseContext.SetParsedPartial(cacheKey, partial)
+	return partial, nil
+}
+
+// loadPartial resolves and returns a parsed partial template.
+//
+// Partials are cached in the ParseContext (parse-time cache), so the FileSystem
+// and parser are invoked at most once per unique partial name across all renders
+// of the same template. Subsequent renders hit the in-memory cache directly.
+func loadPartial(templateName string, ctx engine.RenderContext, parseContext engine.TagParseContext) (*engine.ParsedPartial, error) {
+	cacheKey := templateName + ":" + parseContext.GetErrorMode()
+
+	if cached, ok := parseContext.GetParsedPartial(cacheKey); ok {
 		return cached, nil
 	}
 
@@ -44,12 +86,16 @@ func loadPartial(templateName string, ctx engine.RenderContext, parseContext *en
 	defer parseContext.SetPartial(false)
 
 	tokenizer := parseContext.NewTokenizer(source, 1, false)
-	doc, err := engine.ParseDocument(tokenizer, parseContext)
+	pc, ok := parseContext.(*engine.ParseContext)
+	if !ok {
+		return nil, fmt.Errorf("loadPartial: unsupported TagParseContext implementation")
+	}
+	doc, err := engine.ParseDocument(tokenizer, pc)
 	if err != nil {
 		return nil, err
 	}
 
-	partial := &PartialTemplate{Name: templateName, Root: doc}
-	cachedPartials[cacheKey] = partial
+	partial := &engine.ParsedPartial{Name: templateName, Root: doc}
+	parseContext.SetParsedPartial(cacheKey, partial)
 	return partial, nil
 }

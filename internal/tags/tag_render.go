@@ -82,6 +82,16 @@ func (r *Render) parseAttributes(markup string, ctx engine.TagParseContext) {
 	}
 }
 
+// PreloadPartial implements engine.StaticPartialLoader.
+// Only called when TemplateName is a string literal (set during NewRender).
+func (r *Render) PreloadPartial(pc engine.TagParseContext) error {
+	if r.TemplateName == "" {
+		return nil // dynamic template name — cannot preload at parse time
+	}
+	_, err := loadPartialAtParseTime(r.TemplateName, pc)
+	return err
+}
+
 func (r *Render) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Builder) error {
 	templateName := r.TemplateName
 	if r.VariableTemplate != nil {
@@ -96,13 +106,13 @@ func (r *Render) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.
 		return nil
 	}
 
-	partial, err := loadPartial(templateName, ctx, r.parseContext.(*engine.ParseContext))
+	parsed, err := loadPartial(templateName, ctx, r.parseContext)
 	if err != nil {
 		return err
 	}
 
 	innerCtx := ctx.NewIsolatedSubcontext()
-	innerCtx.SetTemplateName(partial.Name)
+	innerCtx.SetTemplateName(parsed.Name)
 	innerCtx.SetPartial(true)
 
 	for k, v := range r.Attributes {
@@ -122,7 +132,7 @@ func (r *Render) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.
 		segment := engine.SliceCollection(variable, nil, nil)
 		for _, item := range segment {
 			innerCtx.Set(varName, item)
-			if err := partial.Root.RenderToOutputBuffer(innerCtx, output); err != nil {
+			if err := parsed.Root.RenderToOutputBuffer(innerCtx, output); err != nil {
 				return err
 			}
 		}
@@ -132,5 +142,5 @@ func (r *Render) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.
 	if variable != nil {
 		innerCtx.Set(varName, variable)
 	}
-	return partial.Root.RenderToOutputBuffer(innerCtx, output)
+	return parsed.Root.RenderToOutputBuffer(innerCtx, output)
 }
