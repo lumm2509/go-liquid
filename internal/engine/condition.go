@@ -5,10 +5,46 @@ import (
 	"strings"
 )
 
-// Operator is a comparison function used by Condition.
+// OpCode is a compiled operator resolved once at parse time.
+type OpCode uint8
+
+const (
+	OpNone     OpCode = iota
+	OpEq              // ==
+	OpNeq             // != and <>
+	OpLt              // <
+	OpGt              // >
+	OpLte             // <=
+	OpGte             // >=
+	OpContains        // contains
+)
+
+func opCodeFromString(op string) OpCode {
+	switch op {
+	case "==":
+		return OpEq
+	case "!=", "<>":
+		return OpNeq
+	case "<":
+		return OpLt
+	case ">":
+		return OpGt
+	case "<=":
+		return OpLte
+	case ">=":
+		return OpGte
+	case "contains":
+		return OpContains
+	}
+	return OpNone
+}
+
+// Operator is a comparison function — kept for external extensibility,
+// no longer used on the render hot path.
 type Operator func(cond *Condition, left, right interface{}) bool
 
 // Operators maps operator strings to their implementations.
+// Used only as a fallback for unknown/custom operators registered externally.
 var Operators = map[string]Operator{
 	"==": func(cond *Condition, left, right interface{}) bool { return cond.EqualVariables(left, right) },
 	"!=": func(cond *Condition, left, right interface{}) bool { return !cond.EqualVariables(left, right) },
@@ -18,33 +54,38 @@ var Operators = map[string]Operator{
 	"<=": func(cond *Condition, left, right interface{}) bool { return CompareValues(left, right) <= 0 },
 	">=": func(cond *Condition, left, right interface{}) bool { return CompareValues(left, right) >= 0 },
 	"contains": func(cond *Condition, left, right interface{}) bool {
-		if left == nil || right == nil {
-			return false
-		}
-		rv := reflect.ValueOf(left)
-		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
-			for i := 0; i < rv.Len(); i++ {
-				elem := rv.Index(i).Interface()
-				if elem == right { // interface comparison — válida para string, int, bool, float64
-					return true
-				}
-				if reflect.DeepEqual(elem, right) {
-					return true
-				}
+		return evalContains(left, right)
+	},
+}
+
+func evalContains(left, right interface{}) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	rv := reflect.ValueOf(left)
+	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		for i := 0; i < rv.Len(); i++ {
+			elem := rv.Index(i).Interface()
+			if elem == right {
+				return true
 			}
-			return false
-		}
-		if rv.Kind() == reflect.String {
-			return strings.Contains(left.(string), UtilsToString(right))
+			if reflect.DeepEqual(elem, right) {
+				return true
+			}
 		}
 		return false
-	},
+	}
+	if rv.Kind() == reflect.String {
+		return strings.Contains(left.(string), UtilsToString(right))
+	}
+	return false
 }
 
 // Condition is a parsed boolean expression node used by if/unless/case.
 type Condition struct {
 	Left           interface{}
 	Operator       string
+	opCode         OpCode // compiled at parse time — avoids map lookup on every eval
 	Right          interface{}
 	ChildRelation  string
 	ChildCondition *Condition
@@ -52,7 +93,7 @@ type Condition struct {
 }
 
 func NewCondition(left interface{}, operator string, right interface{}) *Condition {
-	return &Condition{Left: left, Operator: operator, Right: right}
+	return &Condition{Left: left, Operator: operator, opCode: opCodeFromString(operator), Right: right}
 }
 
 func NewElseCondition() *Condition { return &Condition{} }
@@ -191,9 +232,28 @@ func (c *Condition) interpretCondition(left, right interface{}, op string, ctx *
 		return IsTruthy(ctx.Evaluate(left))
 	}
 
-	leftVal := ctx.Evaluate(left)
-	rightVal := ctx.Evaluate(right)
+	leftVal := maybeLiquidValue(ctx.Evaluate(left))
+	rightVal := maybeLiquidValue(ctx.Evaluate(right))
 
+	// Fast path: switch on pre-compiled opCode — avoids map lookup (~10-15 ns) on every eval.
+	switch c.opCode {
+	case OpEq:
+		return c.EqualVariables(leftVal, rightVal)
+	case OpNeq:
+		return !c.EqualVariables(leftVal, rightVal)
+	case OpLt:
+		return CompareValues(leftVal, rightVal) < 0
+	case OpGt:
+		return CompareValues(leftVal, rightVal) > 0
+	case OpLte:
+		return CompareValues(leftVal, rightVal) <= 0
+	case OpGte:
+		return CompareValues(leftVal, rightVal) >= 0
+	case OpContains:
+		return evalContains(leftVal, rightVal)
+	}
+
+	// Slow path: unknown/custom operator registered externally via Operators map.
 	operation, ok := Operators[op]
 	if !ok {
 		if ctx.Environment != nil {
@@ -206,7 +266,7 @@ func (c *Condition) interpretCondition(left, right interface{}, op string, ctx *
 		}
 		return false
 	}
-	return operation(c, maybeLiquidValue(leftVal), maybeLiquidValue(rightVal))
+	return operation(c, leftVal, rightVal)
 }
 
 func (c *Condition) EqualVariables(left, right interface{}) bool {
@@ -271,6 +331,9 @@ func maybeLiquidValue(v interface{}) interface{} {
 	}
 	switch v.(type) {
 	case string, int, int64, float64, bool:
+		return v
+	case map[string]interface{}, []interface{}:
+		// Dominant Liquid data types — no conversion needed.
 		return v
 	}
 	return ToLiquidValue(v)
