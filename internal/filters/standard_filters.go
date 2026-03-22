@@ -56,14 +56,21 @@ func (f StandardFilters) Capitalize(input interface{}) string {
 	return strings.ToUpper(s[0:1]) + strings.ToLower(s[1:])
 }
 
-func (f StandardFilters) Escape(input interface{}) string {
-	return html.EscapeString(engine.UtilsToString(input))
+func (f StandardFilters) Escape(input interface{}) engine.SafeHTML {
+	return engine.SafeHTML(html.EscapeString(engine.UtilsToString(input)))
+}
+
+// Raw marks the input as safe HTML, bypassing AutoEscape when active.
+// Use {{ var | raw }} to emit trusted HTML content.
+func (f StandardFilters) Raw(input interface{}) engine.SafeHTML {
+	return engine.SafeHTML(engine.UtilsToString(input))
 }
 
 func (f StandardFilters) Join(input interface{}, glue interface{}) string {
-	s := []string{}
 	rv := reflect.ValueOf(input)
+	var s []string
 	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		s = make([]string, 0, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
 			s = append(s, engine.UtilsToString(rv.Index(i).Interface()))
 		}
@@ -216,18 +223,26 @@ func (f StandardFilters) Uniq(input interface{}) []interface{} {
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return []interface{}{input}
 	}
-	result := make([]interface{}, 0, rv.Len())
-	for i := 0; i < rv.Len(); i++ {
+	n := rv.Len()
+	result := make([]interface{}, 0, n)
+	seen := make(map[interface{}]struct{}, n)
+
+	for i := 0; i < n; i++ {
 		val := rv.Index(i).Interface()
-		duplicate := false
-		for _, seen := range result {
-			if engine.CompareValues(val, seen) == 0 {
-				duplicate = true
-				break
+		switch val.(type) {
+		case string, int, int64, float64, bool:
+			// Fast path: tipos comparables y hasheables directamente
+			if _, exists := seen[val]; !exists {
+				seen[val] = struct{}{}
+				result = append(result, val)
 			}
-		}
-		if !duplicate {
-			result = append(result, val)
+		default:
+			// Slow path: tipos no hasheables — serializa a string como key de hash, O(n) total
+			key := fmt.Sprintf("%v", val)
+			if _, exists := seen[key]; !exists {
+				seen[key] = struct{}{}
+				result = append(result, val)
+			}
 		}
 	}
 	return result
@@ -336,9 +351,17 @@ func (f StandardFilters) Sort(input interface{}, property ...interface{}) []inte
 	}
 	if len(property) > 0 && property[0] != nil {
 		prop := engine.UtilsToString(property[0])
-		sort.SliceStable(res, func(i, j int) bool {
-			return engine.CompareValues(getProperty(res[i], prop), getProperty(res[j], prop)) < 0
+		type kv struct{ val, key interface{} }
+		items := make([]kv, len(res))
+		for i, v := range res {
+			items[i] = kv{val: v, key: getProperty(v, prop)}
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			return engine.CompareValues(items[i].key, items[j].key) < 0
 		})
+		for i, it := range items {
+			res[i] = it.val
+		}
 	} else {
 		sort.SliceStable(res, func(i, j int) bool {
 			return engine.CompareValues(res[i], res[j]) < 0
@@ -388,13 +411,29 @@ func (f StandardFilters) RemoveFirst(input interface{}, anchor interface{}) stri
 
 func (f StandardFilters) StripNewlines(input interface{}) string {
 	s := engine.UtilsToString(input)
-	s = strings.ReplaceAll(s, "\r\n", "")
-	s = strings.ReplaceAll(s, "\n", "")
-	return strings.ReplaceAll(s, "\r", "")
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '\r' {
+			if i+1 < len(s) && s[i+1] == '\n' {
+				i += 2 // saltar \r\n como unidad
+			} else {
+				i++ // saltar \r solo
+			}
+		} else if c == '\n' {
+			i++ // saltar \n
+		} else {
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
 }
 
-func (f StandardFilters) NewlineToBr(input interface{}) string {
-	return strings.ReplaceAll(engine.UtilsToString(input), "\n", "<br />\n")
+func (f StandardFilters) NewlineToBr(input interface{}) engine.SafeHTML {
+	s := html.EscapeString(engine.UtilsToString(input))
+	return engine.SafeHTML(strings.ReplaceAll(s, "\n", "<br />\n"))
 }
 
 func (f StandardFilters) Lstrip(input interface{}) string {
@@ -488,8 +527,8 @@ func (f StandardFilters) Base64Decode(input interface{}) string {
 	return string(b)
 }
 
-func (f StandardFilters) EscapeOnce(input interface{}) string {
-	return html.EscapeString(html.UnescapeString(engine.UtilsToString(input)))
+func (f StandardFilters) EscapeOnce(input interface{}) engine.SafeHTML {
+	return engine.SafeHTML(html.EscapeString(html.UnescapeString(engine.UtilsToString(input))))
 }
 
 func (f StandardFilters) Concat(input interface{}, other interface{}) []interface{} {
@@ -504,21 +543,31 @@ func (f StandardFilters) SortNatural(input interface{}, property ...interface{})
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return []interface{}{}
 	}
-	res := make([]interface{}, rv.Len())
-	for i := range res {
-		res[i] = rv.Index(i).Interface()
+	n := rv.Len()
+
+	type sortItem struct {
+		val interface{}
+		key string
 	}
-	if len(property) > 0 && property[0] != nil {
-		prop := engine.UtilsToString(property[0])
-		sort.SliceStable(res, func(i, j int) bool {
-			vi := strings.ToLower(fmt.Sprintf("%v", getProperty(res[i], prop)))
-			vj := strings.ToLower(fmt.Sprintf("%v", getProperty(res[j], prop)))
-			return vi < vj
-		})
-	} else {
-		sort.SliceStable(res, func(i, j int) bool {
-			return strings.ToLower(fmt.Sprintf("%v", res[i])) < strings.ToLower(fmt.Sprintf("%v", res[j]))
-		})
+	items := make([]sortItem, n)
+	for i := 0; i < n; i++ {
+		v := rv.Index(i).Interface()
+		var raw interface{}
+		if len(property) > 0 && property[0] != nil {
+			raw = getProperty(v, engine.UtilsToString(property[0]))
+		} else {
+			raw = v
+		}
+		items[i] = sortItem{val: v, key: strings.ToLower(engine.UtilsToString(raw))}
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].key < items[j].key
+	})
+
+	res := make([]interface{}, n)
+	for i, it := range items {
+		res[i] = it.val
 	}
 	return res
 }
@@ -571,4 +620,170 @@ func toFloat64(val interface{}) float64 {
 		return f
 	}
 	return 0
+}
+
+// valueToFloat64 converts a Value to float64 for arithmetic filters.
+func valueToFloat64(v engine.Value) float64 {
+	switch v.Kind() {
+	case engine.KindFloat:
+		return v.Float()
+	case engine.KindInt:
+		return float64(v.Int())
+	case engine.KindString:
+		f, _ := engine.UtilsToNumber(v.String()).(float64)
+		return f
+	}
+	return 0
+}
+
+func init() {
+	// size — avoids reflect for the common string case
+	engine.RegisterBuiltin("size", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		switch input.Kind() {
+		case engine.KindString:
+			return engine.ValueInt(int64(len(input.String())))
+		case engine.KindObject:
+			if obj := input.Object(); obj != nil {
+				rv := reflect.ValueOf(obj)
+				switch rv.Kind() {
+				case reflect.Slice, reflect.Array, reflect.Map:
+					return engine.ValueInt(int64(rv.Len()))
+				}
+			}
+		}
+		return engine.ValueInt(0)
+	})
+
+	// downcase / upcase / capitalize
+	engine.RegisterBuiltin("downcase", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueString(strings.ToLower(engine.UtilsToString(input.ToInterface())))
+	})
+	engine.RegisterBuiltin("upcase", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueString(strings.ToUpper(engine.UtilsToString(input.ToInterface())))
+	})
+	engine.RegisterBuiltin("capitalize", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		s := engine.UtilsToString(input.ToInterface())
+		if len(s) == 0 {
+			return engine.ValueString("")
+		}
+		return engine.ValueString(strings.ToUpper(s[0:1]) + strings.ToLower(s[1:]))
+	})
+
+	// escape / strip / strip_html
+	engine.RegisterBuiltin("escape", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueObject(engine.SafeHTML(html.EscapeString(engine.UtilsToString(input.ToInterface()))))
+	})
+	engine.RegisterBuiltin("strip", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueString(strings.TrimSpace(engine.UtilsToString(input.ToInterface())))
+	})
+	engine.RegisterBuiltin("strip_html", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueString(stripHtmlRegex.ReplaceAllString(engine.UtilsToString(input.ToInterface()), ""))
+	})
+
+	// append / prepend
+	engine.RegisterBuiltin("append", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		suffix := ""
+		if len(args) > 0 {
+			suffix = engine.UtilsToString(args[0].ToInterface())
+		}
+		return engine.ValueString(engine.UtilsToString(input.ToInterface()) + suffix)
+	})
+	engine.RegisterBuiltin("prepend", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		prefix := ""
+		if len(args) > 0 {
+			prefix = engine.UtilsToString(args[0].ToInterface())
+		}
+		return engine.ValueString(prefix + engine.UtilsToString(input.ToInterface()))
+	})
+
+	// replace / replace_first
+	engine.RegisterBuiltin("replace", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		s := engine.UtilsToString(input.ToInterface())
+		if len(args) < 2 {
+			return engine.ValueString(s)
+		}
+		return engine.ValueString(strings.ReplaceAll(s, engine.UtilsToString(args[0].ToInterface()), engine.UtilsToString(args[1].ToInterface())))
+	})
+	engine.RegisterBuiltin("replace_first", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		s := engine.UtilsToString(input.ToInterface())
+		if len(args) < 2 {
+			return engine.ValueString(s)
+		}
+		return engine.ValueString(strings.Replace(s, engine.UtilsToString(args[0].ToInterface()), engine.UtilsToString(args[1].ToInterface()), 1))
+	})
+
+	// split
+	engine.RegisterBuiltin("split", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		delim := ""
+		if len(args) > 0 {
+			delim = engine.UtilsToString(args[0].ToInterface())
+		}
+		return engine.ValueObject(strings.Split(engine.UtilsToString(input.ToInterface()), delim))
+	})
+
+	// plus / minus / times / divided_by / modulo
+	engine.RegisterBuiltin("plus", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		if len(args) == 0 {
+			return engine.ValueFloat(valueToFloat64(input))
+		}
+		return engine.ValueFloat(valueToFloat64(input) + valueToFloat64(args[0]))
+	})
+	engine.RegisterBuiltin("minus", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		if len(args) == 0 {
+			return engine.ValueFloat(valueToFloat64(input))
+		}
+		return engine.ValueFloat(valueToFloat64(input) - valueToFloat64(args[0]))
+	})
+	engine.RegisterBuiltin("times", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		if len(args) == 0 {
+			return engine.ValueFloat(0)
+		}
+		return engine.ValueFloat(valueToFloat64(input) * valueToFloat64(args[0]))
+	})
+	engine.RegisterBuiltin("divided_by", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		if len(args) == 0 {
+			return engine.ValueFloat(0)
+		}
+		op := valueToFloat64(args[0])
+		if op == 0 {
+			return engine.ValueFloat(0)
+		}
+		return engine.ValueFloat(valueToFloat64(input) / op)
+	})
+	engine.RegisterBuiltin("modulo", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		if len(args) == 0 {
+			return engine.ValueFloat(0)
+		}
+		op := valueToFloat64(args[0])
+		if op == 0 {
+			return engine.ValueFloat(0)
+		}
+		return engine.ValueFloat(math.Mod(valueToFloat64(input), op))
+	})
+
+	// abs / ceil / floor / round
+	engine.RegisterBuiltin("abs", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		v := valueToFloat64(input)
+		if v < 0 {
+			return engine.ValueFloat(-v)
+		}
+		return engine.ValueFloat(v)
+	})
+	engine.RegisterBuiltin("ceil", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueFloat(math.Ceil(valueToFloat64(input)))
+	})
+	engine.RegisterBuiltin("floor", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
+		return engine.ValueFloat(math.Floor(valueToFloat64(input)))
+	})
+	engine.RegisterBuiltin("round", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
+		val := valueToFloat64(input)
+		decimals := 0
+		if len(args) > 0 && args[0].Kind() != engine.KindNil {
+			if n, err := engine.UtilsToInteger(args[0].ToInterface()); err == nil {
+				decimals = n
+			}
+		}
+		pow := math.Pow(10, float64(decimals))
+		return engine.ValueFloat(math.Round(val*pow) / pow)
+	})
 }

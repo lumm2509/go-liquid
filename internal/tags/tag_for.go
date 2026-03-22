@@ -1,12 +1,25 @@
 package tags
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/go-liquid/internal/engine"
 	"github.com/go-liquid/internal/runtime"
 )
+
+// ForloopDrop holds the forloop metadata available as {{ forloop.index }}, etc.
+// Using a struct instead of a map eliminates per-iteration hash operations.
+type ForloopDrop struct {
+	Index   int
+	Index0  int
+	Rindex  int
+	Rindex0 int
+	First   bool
+	Last    bool
+	Length  int
+}
 
 var ForSyntax = regexp.MustCompile(`^([\w\-]+)\s+in\s+(.+)$`)
 var forLimitRe = regexp.MustCompile(`\blimit:(\S+)`)
@@ -56,6 +69,11 @@ func (f *For) UnknownTag(tag string, markup string) (bool, error) {
 }
 
 func (f *For) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Builder) error {
+	c, ok := ctx.(*engine.Context)
+	if !ok {
+		return fmt.Errorf("tag_for: expected *engine.Context")
+	}
+
 	collection := ctx.Evaluate(f.CollectionName)
 	if collection == nil {
 		return nil
@@ -85,21 +103,20 @@ func (f *For) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Bui
 	}
 
 	length := len(segment)
-	forloopMap := map[string]interface{}{
-		"index": 0, "index0": 0, "rindex": 0, "rindex0": 0,
-		"first": false, "last": false, "length": length,
-	}
+	drop := &ForloopDrop{Length: length}
 
 	return ctx.Stack(nil, func() error {
-		ctx.Set("forloop", forloopMap)
+		ctx.Set("forloop", drop)
 		for i, item := range segment {
-			idx := i + 1
-			forloopMap["index"] = idx
-			forloopMap["index0"] = i
-			forloopMap["rindex"] = length - i
-			forloopMap["rindex0"] = length - i - 1
-			forloopMap["first"] = i == 0
-			forloopMap["last"] = i == length-1
+			if err := c.ResourceLimits.IncrementRenderScore(1); err != nil {
+				return engine.MemoryError{BaseError: engine.BaseError{Message: err.Error(), Cause: err}}
+			}
+			drop.Index = i + 1
+			drop.Index0 = i
+			drop.Rindex = length - i
+			drop.Rindex0 = length - i - 1
+			drop.First = i == 0
+			drop.Last = i == length-1
 
 			ctx.Set(f.VariableName, item)
 
