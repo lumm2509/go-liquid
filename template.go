@@ -10,6 +10,17 @@ import (
 	"github.com/go-liquid/internal/runtime"
 )
 
+// renderBuilderPool reuses strings.Builder backing buffers across renders.
+// Pre-grown to 4 KiB to avoid the repeated doubling allocations for typical template output.
+// Builders that grew beyond 512 KiB are not returned to avoid retaining large buffers.
+var renderBuilderPool = sync.Pool{
+	New: func() interface{} {
+		sb := &strings.Builder{}
+		sb.Grow(4096)
+		return sb
+	},
+}
+
 type Template struct {
 	Root            *engine.Document
 	Name            string
@@ -127,17 +138,23 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 	if assigns != nil {
 		environments = append(environments, assigns)
 	}
+	// D9: skip allocation when the template-level maps are empty (common case).
 	t.mu.RLock()
-	assignsCopy := make(map[string]interface{}, len(t.Assigns))
-	for k, v := range t.Assigns {
-		assignsCopy[k] = v
+	if len(t.Assigns) > 0 {
+		assignsCopy := make(map[string]interface{}, len(t.Assigns))
+		for k, v := range t.Assigns {
+			assignsCopy[k] = v
+		}
+		environments = append(environments, assignsCopy)
 	}
 	t.mu.RUnlock()
-	environments = append(environments, assignsCopy)
 
-	registers := make(map[string]interface{})
-	for k, v := range t.Registers {
-		registers[k] = v
+	var registers map[string]interface{}
+	if len(t.Registers) > 0 {
+		registers = make(map[string]interface{}, len(t.Registers))
+		for k, v := range t.Registers {
+			registers[k] = v
+		}
 	}
 
 	rethrowErrors := false
@@ -177,12 +194,18 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 
 	ctx.TemplateName = t.Name
 
-	var sb strings.Builder
-	err = t.Root.RenderToOutputBuffer(ctx, &sb)
+	// D3: reuse the builder's backing buffer; strings.Clone makes an independent copy.
+	sb := renderBuilderPool.Get().(*strings.Builder)
+	sb.Reset()
+	err = t.Root.RenderToOutputBuffer(ctx, sb)
+	result := strings.Clone(sb.String())
+	if sb.Cap() <= 512*1024 {
+		renderBuilderPool.Put(sb)
+	}
 	if err != nil {
 		return "", err
 	}
-	return sb.String(), nil
+	return result, nil
 }
 
 // SetAssign sets a template-level assign variable in a thread-safe manner.
