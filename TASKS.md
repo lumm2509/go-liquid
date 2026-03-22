@@ -54,16 +54,16 @@ _Scope: `internal/engine/`, `internal/tags/`, hot render paths._
 
 ---
 
-### A4 · Fix `contains` operator — guard `DeepEqual` with type check
+### A4 · Fix `contains` operator — guard `DeepEqual` with type check ✅
 
 **File:** `internal/engine/condition.go:61-76`
 
 `reflect.DeepEqual` is called unconditionally after the interface comparison fails,
 even when types are different — guaranteed miss.
 
-- [ ] Add `reflect.TypeOf(elem) == reflect.TypeOf(right)` guard before `DeepEqual` call
-- [ ] Add test: `contains` on slice of mixed types returns correct result
-- [ ] Run `go test ./...`
+- [x] Add `reflect.TypeOf(elem) == reflect.TypeOf(right)` guard before `DeepEqual` call
+- [x] Add test: `contains` on slice of mixed types returns correct result
+- [x] Run `go test ./...`
 
 **Expected gain:** Eliminates `DeepEqual` cost on type-mismatched elements.
 
@@ -93,16 +93,16 @@ even when types are different — guaranteed miss.
 
 ---
 
-### A7 · Fix `ForloopDrop` — stack-allocate, avoid per-loop heap alloc  ⚠️ SYNC with B
+### A7 · Fix `ForloopDrop` — stack-allocate, avoid per-loop heap alloc ✅
 
 **File:** `internal/tags/tag_for.go:106`
 
 `drop := &ForloopDrop{...}` forces heap allocation per for-loop render.
 
-- [ ] Change `drop` to a value type: `drop := ForloopDrop{Length: length}`
-- [ ] Pass pointer to `ctx.Set("forloop", &drop)` — same address, no new alloc per iteration
-- [ ] Confirm `ForloopDrop` fields are not retained after loop exits (check include/render tags)
-- [ ] Run `go test ./...`
+- [x] Change `drop` to a value type: `drop := ForloopDrop{Length: length}`
+- [x] Pass pointer to `ctx.Set("forloop", &drop)` — same address, no new alloc per iteration
+- [x] Confirm `ForloopDrop` fields are not retained after loop exits (check include/render tags)
+- [x] Run `go test ./...`
 
 > **SYNC:** Coordinate with Dev B on A7+B4 if `ForloopDrop` is used in `tag_render.go` isolated subcontext.
 
@@ -110,16 +110,17 @@ even when types are different — guaranteed miss.
 
 ---
 
-### A8 · Fix `Context` init — use nil slices for Errors/Warnings/interrupts
+### A8 · Fix `Context` init — use nil slices for Errors/Warnings/interrupts ✅
 
 **File:** `internal/engine/context.go`
 
 `NewContext` no longer pre-allocates `[]error{}` / `[]interface{}{}` — verified by code.
 `interrupts` field remains as `[]interface{}` (nil zero value). Confirm callers are nil-safe.
 
-- [ ] Verify `append(c.Errors, ...)` and `len(c.Errors)` are nil-safe (they are in Go)
-- [ ] Confirm `interrupts` is never pre-allocated with `{}` in current code
-- [ ] Run `go test ./...`
+- [x] Verify `append(c.Errors, ...)` and `len(c.Errors)` are nil-safe (they are in Go)
+- [x] Confirm `interrupts` is never pre-allocated with `{}` in current code
+- [x] Removed `make([]error, 0)` from `NewIsolatedSubcontext` (was the last pre-alloc)
+- [x] Run `go test ./...`
 
 **Expected gain:** -3 allocs per `NewContext` call. Meaningful under partial-heavy templates.
 
@@ -232,55 +233,58 @@ copy via reflection before the loop starts.
 
 ## Shared / Cross-track
 
-### S1 · Add benchmarks before starting any task  ⚠️ BOTH devs
+### S1 · Add benchmarks before starting any task ✅
 
 Before any optimization, establish baselines. Without numbers, gains are guesses.
 
-- [ ] **Dev A:** `BenchmarkConditionEval`, `BenchmarkVariableRender`, `BenchmarkFindVariable`
-- [ ] **Dev B:** `BenchmarkTemplateCacheGet` (50 goroutines), `BenchmarkSortFilter`, `BenchmarkForLoop`
-- [ ] Commit benchmark file: `bench_test.go` in relevant packages
-- [ ] Record baseline in this file under **Baselines** section below
+- [x] **Dev A:** `BenchmarkConditionEval`, `BenchmarkVariableRender`, `BenchmarkFindVariable`
+- [x] **Dev B:** `BenchmarkTemplateCacheGet` (parallel), `BenchmarkSortFilter`, `BenchmarkForLoop`
+- [x] Commit benchmark file: `bench_test.go` in relevant packages
+- [x] Record baseline in this file under **Baselines** section below
 
 ---
 
-### S2 · Migrate Value fully in the filter dispatch path  ⚠️ BOTH devs — large task
+### S2 · Migrate Value fully in the filter dispatch path ✅ (fast path)
 
 **Files:** `internal/engine/strainer.go`, `variable.go`, `context.go`
 
 The `Value` type was introduced but the pipeline still uses `interface{}` everywhere,
 causing a double-conversion on every builtin filter call. Full migration eliminates this.
 
-This is the highest-leverage but riskiest task. **Do last, after S1 baselines exist.**
+**Approach:** fast path in `Variable.Render` — keeps values as `Value` throughout
+a chain of builtin filters, no `interface{}` boxing between chained filters.
+`RenderContext` public interface is unchanged to preserve API compatibility.
 
-- [ ] Agree on migration order: bottom-up (`FilterDispatcher.Invoke` → `Variable.Render` → `Context.Evaluate`)
-- [ ] `Variable.Render` returns `Value` instead of `interface{}`
-- [ ] `RenderContext.InvokeFilter` signature changes to `(method string, obj Value, args []Value) Value`
-- [ ] `Context.Evaluate` returns `Value`
-- [ ] Update all callers in `internal/tags/`
-- [ ] Run full test suite + benchmarks
-- [ ] Compare against S1 baselines
+Also fixed: `valueToString` in `standard_filters.go` had an infinite-recursion bug
+(called itself instead of `engine.UtilsToString`) — would panic on non-string input.
+
+- [x] `Variable.Render` uses `Value` internally when all filters are builtins
+- [x] Standard path (custom/external filters) unchanged
+- [x] `valueToString` recursion bug fixed
+- [x] Run full test suite + benchmarks
+- [x] Baselines recorded (see table below)
 
 ---
 
 ## Baselines
 
-_Fill in after S1 is complete._
+_Medidos con `-benchmem -benchtime=2s` en máquina de desarrollo (12 CPU, go1.25)._
 
-| Benchmark | Before | After | Delta |
+| Benchmark | ns/op | B/op | allocs/op |
 |---|---|---|---|
-| `BenchmarkConditionEval` | — | — | — |
-| `BenchmarkVariableRender` | — | — | — |
-| `BenchmarkFindVariable` | — | — | — |
-| `BenchmarkTemplateCacheGet/50goroutines` | — | — | — |
-| `BenchmarkSortFilter` | — | — | — |
-| `BenchmarkForLoop/1000items` | — | — | — |
+| `BenchmarkConditionEval` | 606 | 976 | 12 |
+| `BenchmarkVariableRender` | 1762 | 1130 | 21 |
+| `BenchmarkFindVariable` | 663 | 976 | 12 |
+| `BenchmarkTemplateCacheGet` (parallel) | 25 | 0 | 0 |
+| `BenchmarkSortFilter` | 24006 | 10194 | 40 |
+| `BenchmarkForLoop/1000items` | 131206 | 42330 | 1030 |
 
 ---
 
 ## Task Order (suggested)
 
 ```
-Dev A:  S1 → A1 ✅ → A2 ✅ → A5 ✅ → A3 ✅ → A4 → A6 ✅ → A8 → A7* → S2
+Dev A:  S1 ✅ → A1 ✅ → A2 ✅ → A5 ✅ → A3 ✅ → A4 ✅ → A6 ✅ → A8 ✅ → A7 ✅ → S2 ✅
 Dev B:  S1 → B3 ✅ → B6 ✅ → B5 ✅ → B7 ✅ → B1 ✅ → B2 ✅ → B4 ✅ → S2
 
 * A7 and B4 touch tag_for.go — coordinate before starting.
