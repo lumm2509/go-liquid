@@ -173,19 +173,19 @@ _Scope: `cache.go`, `internal/filters/`, `internal/engine/utils.go` data paths._
 
 ---
 
-### B4 · Fix `SliceCollection` — lazy iterator for typed slices  ⚠️ SYNC with A7
+### B4 · Fix `SliceCollection` — lazy iterator for typed slices  ✅
 
 **File:** `internal/engine/utils.go`, `internal/tags/tag_for.go`
 
 For any `[]SomeType` (not `[]interface{}`), `SliceCollection` materializes a full
 copy via reflection before the loop starts.
 
-- [ ] Define interface: `type Iterable interface { Len() int; At(i int) interface{} }`
-- [ ] Implement `reflectSliceIterable` wrapping a `reflect.Value`
-- [ ] Implement `interfaceSliceIterable` as a fast path for `[]interface{}`
-- [ ] Update `tag_for.go:RenderToOutputBuffer` to iterate via `Iterable` instead of `[]interface{}`
-- [ ] Update `SliceCollection` or add `ToIterable` alongside it — preserve existing callers
-- [ ] Run `go test ./...`
+- [x] Define interface: `type Iterable interface { Len() int; At(i int) interface{} }`
+- [x] Implement `reflectSliceIterable` wrapping a `reflect.Value`
+- [x] Implement `interfaceSliceIterable` as a fast path for `[]interface{}`
+- [x] Update `tag_for.go:RenderToOutputBuffer` to iterate via `Iterable` instead of `[]interface{}`
+- [x] Update `SliceCollection` or add `ToIterable` alongside it — preserve existing callers
+- [x] Run `go test ./...`
 
 > **SYNC with A7** — both touch `tag_for.go`. Do after A7 is merged.
 
@@ -281,7 +281,7 @@ _Fill in after S1 is complete._
 
 ```
 Dev A:  S1 → A1 ✅ → A2 ✅ → A5 ✅ → A3 ✅ → A4 → A6 ✅ → A8 → A7* → S2
-Dev B:  S1 → B3 ✅ → B6 ✅ → B5 ✅ → B7 ✅ → B1 ✅ → B2 ✅ → B4* → S2
+Dev B:  S1 → B3 ✅ → B6 ✅ → B5 ✅ → B7 ✅ → B1 ✅ → B2 ✅ → B4 ✅ → S2
 
 * A7 and B4 touch tag_for.go — coordinate before starting.
   S2 requires both tracks complete.

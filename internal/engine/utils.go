@@ -21,6 +21,78 @@ func mapKeyString(v reflect.Value) string {
 	return fmt.Sprintf("%v", v.Interface())
 }
 
+// Iterable is a lazy sequence — avoids materialising a full []interface{} copy
+// before the for-loop body executes.
+type Iterable interface {
+	Len() int
+	At(i int) interface{}
+}
+
+// interfaceSliceIterable is the fast path for []interface{} — no reflection.
+type interfaceSliceIterable struct{ s []interface{} }
+
+func (it interfaceSliceIterable) Len() int             { return len(it.s) }
+func (it interfaceSliceIterable) At(i int) interface{} { return it.s[i] }
+
+// reflectSliceIterable wraps any Slice or Array via reflect.Value with no element copies.
+type reflectSliceIterable struct {
+	rv    reflect.Value
+	start int
+	end   int
+}
+
+func (it reflectSliceIterable) Len() int             { return it.end - it.start }
+func (it reflectSliceIterable) At(i int) interface{} { return it.rv.Index(it.start + i).Interface() }
+
+func iterBounds(length int, from, to *int) (int, int) {
+	start := 0
+	if from != nil && *from > 0 {
+		start = *from
+		if start > length {
+			start = length
+		}
+	}
+	end := length
+	if to != nil && *to < end {
+		end = *to
+	}
+	if start > end {
+		end = start
+	}
+	return start, end
+}
+
+// ToIterable returns an Iterable over the collection window [from, to).
+// For []interface{} it avoids reflection entirely. For typed slices/arrays it
+// wraps the reflect.Value — no per-element allocation until At() is called.
+// Maps are materialised and sorted (same as SliceCollection).
+func ToIterable(collection interface{}, from, to *int) Iterable {
+	// Fast path: []interface{} — no reflection needed.
+	if s, ok := collection.([]interface{}); ok {
+		start, end := iterBounds(len(s), from, to)
+		return interfaceSliceIterable{s: s[start:end]}
+	}
+
+	rv := reflect.ValueOf(collection)
+
+	// Maps must be materialised to sort by key.
+	if rv.Kind() == reflect.Map {
+		return interfaceSliceIterable{s: SliceCollection(collection, from, to)}
+	}
+
+	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		start, end := iterBounds(rv.Len(), from, to)
+		return reflectSliceIterable{rv: rv, start: start, end: end}
+	}
+
+	// Scalar string — single-element collection.
+	if s, ok := collection.(string); ok && s != "" {
+		return interfaceSliceIterable{s: []interface{}{s}}
+	}
+
+	return interfaceSliceIterable{}
+}
+
 func SliceCollection(collection interface{}, from, to *int) []interface{} {
 	// Fast path: map[string]interface{} — avoids reflect.Value map key handling entirely
 	if m, ok := collection.(map[string]interface{}); ok {

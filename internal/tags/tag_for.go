@@ -94,20 +94,13 @@ func (f *For) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Bui
 		}
 	}
 
-	segment := engine.SliceCollection(collection, fromPtr, toPtr)
-
-	if f.Reversed {
-		for i, j := 0, len(segment)-1; i < j; i, j = i+1, j-1 {
-			segment[i], segment[j] = segment[j], segment[i]
-		}
-	}
-
-	length := len(segment)
+	iter := engine.ToIterable(collection, fromPtr, toPtr)
+	length := iter.Len()
 	drop := ForloopDrop{Length: length}
 
 	return ctx.Stack(nil, func() error {
 		ctx.Set("forloop", &drop)
-		for i, item := range segment {
+		for i := 0; i < length; i++ {
 			if err := c.ResourceLimits.IncrementRenderScore(1); err != nil {
 				return engine.MemoryError{BaseError: engine.BaseError{Message: err.Error(), Cause: err}}
 			}
@@ -118,7 +111,11 @@ func (f *For) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Bui
 			drop.First = i == 0
 			drop.Last = i == length-1
 
-			ctx.Set(f.VariableName, item)
+			dataIdx := i
+			if f.Reversed {
+				dataIdx = length - 1 - i
+			}
+			ctx.Set(f.VariableName, iter.At(dataIdx))
 
 			if err := f.Block.RenderToOutputBuffer(ctx, output); err != nil {
 				return err
