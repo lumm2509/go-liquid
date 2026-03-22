@@ -25,7 +25,11 @@ import (
 type TemplateCache struct {
 	shards  [16]cacheShard
 	env     *Environment
-	MaxSize int           // 0 = unlimited (applied per-shard: total ≈ MaxSize)
+	// MaxSize is the approximate maximum number of templates to keep.
+	// 0 = unlimited. The limit is enforced per shard (MaxSize/16, min 1),
+	// so the actual maximum can be up to MaxSize entries in a perfectly
+	// uniform key distribution — treat this as a soft cap, not a hard limit.
+	MaxSize int
 	TTL     time.Duration // 0 = no expiration
 }
 

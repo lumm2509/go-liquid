@@ -195,25 +195,29 @@ func splitByCommaRespectingQuotes(s string) []string {
 func (v *Variable) Render(ctx RenderContext) interface{} {
 	// Fast path: when ctx is *Context and every filter is a registered builtin,
 	// keep values as Value throughout the chain — no interface{} boxing between filters.
+	// Single pass collects FilterFunc pointers while checking; avoids a second
+	// map lookup per filter during execution (n lookups instead of 2n).
 	if c, ok := ctx.(*Context); ok && len(v.Filters) > 0 {
+		fns := make([]FilterFunc, len(v.Filters))
 		allBuiltin := true
 		for i := range v.Filters {
-			if _, ok := BuiltinFilters[v.Filters[i].Name]; !ok {
+			fn, ok := BuiltinFilters[v.Filters[i].Name]
+			if !ok {
 				allBuiltin = false
 				break
 			}
+			fns[i] = fn
 		}
 		if allBuiltin {
 			val := ValueFrom(ctx.Evaluate(v.Name))
 			sp := GetValueSlice()
 			scratch := (*sp)[:0]
-			for _, filter := range v.Filters {
-				fn := BuiltinFilters[filter.Name]
+			for i, filter := range v.Filters {
 				scratch = scratch[:0]
 				for _, arg := range filter.Args {
 					scratch = append(scratch, ValueFrom(ctx.Evaluate(arg)))
 				}
-				val = fn(c, val, scratch)
+				val = fns[i](c, val, scratch)
 			}
 			for i := range scratch {
 				scratch[i] = Value{}

@@ -203,7 +203,7 @@ copy via reflection before the loop starts.
 - [x] Apply permutation into a new `sorted` slice
 - [x] Run `go test ./...` — sort output is stable
 
-**Expected gain:** -1 full slice alloc per `| sort: "property"` call.
+**Actual gain (F1):** La descripción original decía "−1 alloc" pero la implementación tiene +2 allocations (`keys` + `indices` adicionales vs `[]kv`). La ganancia real es **4× mejor cache locality durante el sort**: se ordena un `[]int` de 8 bytes/elem en lugar de `[]kv` de 32 bytes/elem. El resultado es correcto y el beneficio es real, pero por la razón equivocada.
 
 ---
 
@@ -268,6 +268,8 @@ Also fixed: `valueToString` in `standard_filters.go` had an infinite-recursion b
 
 ## Baselines
 
+> ⚠️ **Estos números son post-optimización** — S1 se ejecutó después de que todas las tareas estaban completas. No hay mediciones pre-optimización registradas. Para la próxima ronda de mejoras, ejecutar benchmarks **antes** de tocar código.
+
 _Medidos con `-benchmem -benchtime=2s` en máquina de desarrollo (12 CPU, go1.25)._
 
 | Benchmark | ns/op | B/op | allocs/op |
@@ -285,8 +287,122 @@ _Medidos con `-benchmem -benchtime=2s` en máquina de desarrollo (12 CPU, go1.25
 
 ```
 Dev A:  S1 ✅ → A1 ✅ → A2 ✅ → A5 ✅ → A3 ✅ → A4 ✅ → A6 ✅ → A8 ✅ → A7 ✅ → S2 ✅
-Dev B:  S1 → B3 ✅ → B6 ✅ → B5 ✅ → B7 ✅ → B1 ✅ → B2 ✅ → B4 ✅ → S2
+Dev B:  S1 ✅ → B3 ✅ → B6 ✅ → B5 ✅ → B7 ✅ → B1 ✅ → B2 ✅ → B4 ✅ → S2 ✅
 
-* A7 and B4 touch tag_for.go — coordinate before starting.
-  S2 requires both tracks complete.
+* A7 y B4 comparten tag_for.go — se coordinaron correctamente.
 ```
+
+---
+
+## Findings — Revisión post-implementación
+
+Desviaciones y hallazgos descubiertos al revisar el código producido.
+
+---
+
+### F1 · B5 `Sort` — conteo de allocations incorrecto en la descripción de la tarea
+
+**Tarea original:** "-1 full slice alloc per `| sort: 'property'`"
+
+**Realidad:** la nueva implementación tiene **más allocations** que la anterior, no menos.
+
+| | Allocations | Bytes/elem |
+|---|---|---|
+| Antes | `res` + `items []kv` | 16 + 32 = 48n |
+| Después | `res` + `keys` + `indices` + `sorted` | 16 + 16 + 8 + 16 = 56n |
+
+La ganancia real no está en la cantidad de allocations sino en la **densidad de datos durante el sort**: el algoritmo ahora ordena un `[]int` (8 bytes/elem) en lugar de `[]kv` (32 bytes/elem), lo que significa 4× mejor cache locality durante las comparaciones. El beneficio es real, pero la justificación en la tarea era incorrecta.
+
+**Acción pendiente:** actualizar el expected gain de B5 para reflejar la ganancia real (cache locality en sort) en lugar de "−1 alloc".
+
+---
+
+### F2 · S2 — doble lookup en `BuiltinFilters` en el fast path de `Variable.Render`
+
+**Archivo:** `internal/engine/variable.go:198-224`
+
+El fast path de S2 hace **dos pasadas** sobre `v.Filters`:
+
+```go
+// Pasada 1: verificar que todos sean builtins
+for i := range v.Filters {
+    if _, ok := BuiltinFilters[v.Filters[i].Name]; !ok { ... }
+}
+// Pasada 2: ejecutar (lookup de nuevo por nombre)
+for _, filter := range v.Filters {
+    fn := BuiltinFilters[filter.Name]   // ← segundo map lookup
+```
+
+Para `n` filtros: `2n` map lookups donde podría ser `n`. La primera pasada debería acumular los `FilterFunc` pointers directamente.
+
+**Solución:**
+```go
+fns := make([]FilterFunc, len(v.Filters))
+for i, f := range v.Filters {
+    fn, ok := BuiltinFilters[f.Name]
+    if !ok { goto standardPath }
+    fns[i] = fn
+}
+// usar fns[i] en la segunda pasada — cero lookups adicionales
+```
+
+**Impacto:** menor al de otras optimizaciones (n suele ser 1–3), pero es inconsistente con el objetivo de S2.
+
+---
+
+### F3 · S2 — regresión introducida y corregida: `valueToString` llamaba a sí misma
+
+**Archivo:** `internal/filters/standard_filters.go`
+
+Durante la implementación de B6/S2 se introdujo una función `valueToString` que tenía una recursión infinita para inputs no-string. El bug fue detectado y corregido en la misma sesión. La versión final es correcta:
+
+```go
+func valueToString(v engine.Value) string {
+    if v.Kind() == engine.KindString {
+        return v.String()                            // fast path: sin alloc
+    }
+    return engine.UtilsToString(v.ToInterface())    // fallback correcto
+}
+```
+
+**Lección:** al añadir helpers en el mismo paquete que funciones con nombre similar (`UtilsToString` vs `valueToString`), verificar que el fallback llame a la función del paquete externo, no a sí misma.
+
+---
+
+### F4 · B4+A7 — `f.Reversed` verifica en cada iteración en lugar de pre-procesar
+
+**Archivo:** `internal/tags/tag_for.go:114-117`
+
+La implementación original revertía el segmento **una sola vez** antes del loop (O(n/2) swaps, sin branch por iteración). La nueva implementación verifica `f.Reversed` en **cada iteración**:
+
+```go
+dataIdx := i
+if f.Reversed {          // ← branch en cada iteración del loop
+    dataIdx = length - 1 - i
+}
+ctx.Set(f.VariableName, iter.At(dataIdx))
+```
+
+**Trade-off:** se elimina la pre-materialización del slice revertido (ahorro de alloc), pero se añade un branch predecible por iteración. En la práctica el branch predictor lo manejará bien. El balance neto es positivo — el ahorro de alloc pesa más. No requiere acción.
+
+---
+
+### F5 · S1 — baselines capturados post-optimización
+
+Los benchmarks de la tabla **Baselines** fueron registrados después de completar todas las tareas, no antes. No existe registro de los valores pre-optimización.
+
+**Consecuencia:** no hay forma de medir cuánto mejoró cada tarea individualmente. Los números actuales son la nueva línea base para futuras optimizaciones.
+
+**Para la próxima ronda:** ejecutar `go test -run='^$' -bench=. -benchmem -count=5 ./...` y registrar resultados **antes** de cualquier cambio.
+
+---
+
+### F6 · B2 — `MaxSize` es aproximado con sharding
+
+**Archivo:** `cache.go:104-113`
+
+Con `MaxSize = 10` y 16 shards, el límite por shard es `max(10/16, 1) = 1`. La cache puede contener hasta **16 entradas** cuando MaxSize=10 si las keys caen uniformemente en distintos shards.
+
+Esto está documentado en el comentario `// total ≈ MaxSize`. No es un bug funcional pero puede sorprender a usuarios que configuren `MaxSize` para límites de memoria exactos.
+
+**Acción pendiente:** documentar en el godoc de `MaxSize` que el límite es aproximado con sharding activo (`±MaxSize` en distribución uniforme).
