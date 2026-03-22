@@ -26,6 +26,12 @@ type RenderOptions struct {
 	// Default: false.
 	RethrowErrors bool
 
+	// DisableAutoEscape desactiva el escape automático de HTML en variables renderizadas.
+	// Por defecto el escape automático está ACTIVO (secure-by-default).
+	// Usa el filtro {{ var | raw }} para emitir HTML sin escapar cuando AutoEscape está activo.
+	// Setea DisableAutoEscape: true para restaurar el comportamiento anterior (sin escape).
+	DisableAutoEscape bool
+
 	// Registers permite pasar estado adicional accesible desde tags custom.
 	Registers map[string]interface{}
 }

@@ -73,10 +73,10 @@ func TestCapitalize(t *testing.T) {
 
 func TestEscape(t *testing.T) {
 	f := StandardFilters{}
-	require.Equal(t, "&lt;p&gt;", f.Escape("<p>"))
-	require.Equal(t, "hello", f.Escape("hello"))
-	require.Equal(t, "", f.Escape(nil))
-	require.Equal(t, "a &amp; b", f.Escape("a & b"))
+	require.Equal(t, SafeHTML("&lt;p&gt;"), f.Escape("<p>"))
+	require.Equal(t, SafeHTML("hello"), f.Escape("hello"))
+	require.Equal(t, SafeHTML(""), f.Escape(nil))
+	require.Equal(t, SafeHTML("a &amp; b"), f.Escape("a & b"))
 }
 
 // --- Join ---

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-liquid/internal/engine"
 	"github.com/go-liquid/internal/filters"
+	"github.com/go-liquid/internal/runtime"
 	"github.com/go-liquid/internal/tags"
 )
 
@@ -16,17 +17,17 @@ type Environment struct {
 	ErrorMode             string
 	ExceptionRenderer     ExceptionRenderer
 	FileSystem            FileSystem
-	DefaultResourceLimits map[string]interface{}
+	DefaultResourceLimits runtime.ResourceLimitsConfig
 	Logger                DebugLogger // nil = no-op
 
 	tags                       map[string]TagFactory
-	strainerTemplate           *StrainerTemplate
-	strainerTemplateClassCache map[string]*StrainerTemplate
+	filterRegistry           *FilterRegistry
+	filterRegistryClassCache map[string]*FilterRegistry
 	mu                         sync.RWMutex
 	frozen                     bool
 }
 
-func (e *Environment) log(event string, data map[string]interface{}) {
+func (e *Environment) log(event engine.DebugEventType, data map[string]interface{}) {
 	if e.Logger == nil {
 		return
 	}
@@ -49,14 +50,13 @@ func NewEnvironment() *Environment {
 		tags:                       make(map[string]TagFactory),
 		ExceptionRenderer:          func(err error) error { return err },
 		FileSystem:                 &BlankFileSystem{},
-		DefaultResourceLimits:      make(map[string]interface{}),
-		strainerTemplateClassCache: make(map[string]*StrainerTemplate),
+		filterRegistryClassCache: make(map[string]*FilterRegistry),
 	}
 	for k, v := range tags.StandardTags {
 		env.tags[k] = v
 	}
-	env.strainerTemplate = NewStrainerTemplate()
-	env.strainerTemplate.AddFilter(filters.StandardFilters{})
+	env.filterRegistry = NewFilterRegistry()
+	env.filterRegistry.AddFilter(filters.StandardFilters{})
 	return env
 }
 
@@ -75,7 +75,7 @@ func (e *Environment) RegisterTag(name string, factory TagFactory) error {
 	if e.frozen {
 		if e.Logger != nil {
 			e.Logger.Log(DebugEvent{
-				Event: "environment.frozen_tag_skipped",
+				Event: engine.EventEnvironmentFrozenTag,
 				Data:  map[string]interface{}{"tag": name},
 			})
 		}
@@ -88,45 +88,45 @@ func (e *Environment) RegisterTag(name string, factory TagFactory) error {
 func (e *Environment) RegisterFilter(filter interface{}) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.strainerTemplateClassCache = make(map[string]*StrainerTemplate)
-	e.strainerTemplate.AddFilter(filter)
+	e.filterRegistryClassCache = make(map[string]*FilterRegistry)
+	e.filterRegistry.AddFilter(filter)
 }
 
 func (e *Environment) RegisterFilters(filterList []interface{}) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.strainerTemplateClassCache = make(map[string]*StrainerTemplate)
+	e.filterRegistryClassCache = make(map[string]*FilterRegistry)
 	for _, f := range filterList {
-		e.strainerTemplate.AddFilter(f)
+		e.filterRegistry.AddFilter(f)
 	}
 }
 
-func (e *Environment) CreateStrainer(context *engine.Context, filterList []interface{}) *engine.Strainer {
+func (e *Environment) CreateFilterDispatcher(context *engine.Context, filterList []interface{}) *engine.FilterDispatcher {
 	if len(filterList) == 0 {
-		return e.strainerTemplate.NewStrainer(context)
+		return e.filterRegistry.NewFilterDispatcher(context)
 	}
 	cacheKey := generateFilterCacheKey(filterList)
 
 	e.mu.RLock()
-	tmpl, ok := e.strainerTemplateClassCache[cacheKey]
+	tmpl, ok := e.filterRegistryClassCache[cacheKey]
 	e.mu.RUnlock()
 
 	if !ok {
 		e.mu.Lock()
-		if tmpl, ok = e.strainerTemplateClassCache[cacheKey]; !ok {
-			tmpl = e.strainerTemplate.Clone()
+		if tmpl, ok = e.filterRegistryClassCache[cacheKey]; !ok {
+			tmpl = e.filterRegistry.Clone()
 			for _, f := range filterList {
 				tmpl.AddFilter(f)
 			}
-			e.strainerTemplateClassCache[cacheKey] = tmpl
+			e.filterRegistryClassCache[cacheKey] = tmpl
 		}
 		e.mu.Unlock()
 	}
-	return tmpl.NewStrainer(context)
+	return tmpl.NewFilterDispatcher(context)
 }
 
 func (e *Environment) FilterMethodNames() []string {
-	return e.strainerTemplate.FilterMethodNames()
+	return e.filterRegistry.FilterMethodNames()
 }
 
 func (e *Environment) TagForName(name string) engine.TagFactory {
@@ -147,7 +147,7 @@ func (e *Environment) GetExceptionRenderer() engine.ExceptionRenderer {
 	return e.ExceptionRenderer
 }
 func (e *Environment) GetFileSystem() engine.FileSystem    { return e.FileSystem }
-func (e *Environment) GetDefaultResourceLimits() map[string]interface{} {
+func (e *Environment) GetDefaultResourceLimits() runtime.ResourceLimitsConfig {
 	return e.DefaultResourceLimits
 }
 func (e *Environment) GetLogger() engine.DebugLogger { return e.Logger }
