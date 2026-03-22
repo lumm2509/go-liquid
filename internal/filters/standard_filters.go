@@ -641,7 +641,7 @@ func valueToString(v engine.Value) string {
 	if v.Kind() == engine.KindString {
 		return v.String()
 	}
-	return valueToString(v)
+	return engine.UtilsToString(v.ToInterface())
 }
 
 // valueToFloat64 converts a Value to float64 for arithmetic filters.

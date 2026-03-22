@@ -193,8 +193,39 @@ func splitByCommaRespectingQuotes(s string) []string {
 
 // Render evaluates the variable and all its filters, returning the final value.
 func (v *Variable) Render(ctx RenderContext) interface{} {
-	obj := ctx.Evaluate(v.Name)
+	// Fast path: when ctx is *Context and every filter is a registered builtin,
+	// keep values as Value throughout the chain — no interface{} boxing between filters.
+	if c, ok := ctx.(*Context); ok && len(v.Filters) > 0 {
+		allBuiltin := true
+		for i := range v.Filters {
+			if _, ok := BuiltinFilters[v.Filters[i].Name]; !ok {
+				allBuiltin = false
+				break
+			}
+		}
+		if allBuiltin {
+			val := ValueFrom(ctx.Evaluate(v.Name))
+			sp := GetValueSlice()
+			scratch := (*sp)[:0]
+			for _, filter := range v.Filters {
+				fn := BuiltinFilters[filter.Name]
+				scratch = scratch[:0]
+				for _, arg := range filter.Args {
+					scratch = append(scratch, ValueFrom(ctx.Evaluate(arg)))
+				}
+				val = fn(c, val, scratch)
+			}
+			for i := range scratch {
+				scratch[i] = Value{}
+			}
+			*sp = scratch[:0]
+			PutValueSlice(sp)
+			return ctx.ApplyGlobalFilter(val.ToInterface())
+		}
+	}
 
+	// Standard path: used for custom/external filters or non-*Context implementations.
+	obj := ctx.Evaluate(v.Name)
 	sp := filterArgsPool.Get().(*[]interface{})
 	scratch := *sp
 	for _, filter := range v.Filters {
@@ -209,7 +240,6 @@ func (v *Variable) Render(ctx RenderContext) interface{} {
 		}
 		obj = ctx.InvokeFilter(filter.Name, obj, scratch...)
 	}
-	// Clear held references and return largest slice to pool.
 	for i := range scratch {
 		scratch[i] = nil
 	}
