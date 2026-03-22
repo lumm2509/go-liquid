@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 )
@@ -21,6 +20,13 @@ func IsTruthy(v interface{}) bool {
 		return val != 0
 	case float64:
 		return val != 0
+	// D6: fast path for dominant Liquid collection types — avoids reflect.ValueOf
+	case []interface{}:
+		return len(val) > 0
+	case map[string]interface{}:
+		return len(val) > 0
+	case []string:
+		return len(val) > 0
 	default:
 		rv := reflect.ValueOf(v)
 		switch rv.Kind() {
@@ -78,9 +84,8 @@ func CompareValues(a, b interface{}) int {
 		return 1
 	}
 
-	as := fmt.Sprintf("%v", a)
-	bs := fmt.Sprintf("%v", b)
-	return strings.Compare(as, bs)
+	// D7: UtilsToString has fast paths for all primitive types — avoids fmt.Sprintf alloc
+	return strings.Compare(UtilsToString(a), UtilsToString(b))
 }
 
 func cmpInt(a, b int) int {
