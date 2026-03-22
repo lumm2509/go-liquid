@@ -1,14 +1,17 @@
 package liquid
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 
+	"github.com/go-liquid/internal/engine"
 	"github.com/go-liquid/internal/runtime"
 )
 
 type Template struct {
-	Root            *Document
+	Root            *engine.Document
 	Name            string
 	ResourceLimits  *runtime.ResourceLimits
 	Warnings        []error
@@ -16,6 +19,7 @@ type Template struct {
 	Registers       map[string]interface{}
 	Assigns         map[string]interface{}
 	InstanceAssigns map[string]interface{}
+	mu              sync.RWMutex // protege Assigns e InstanceAssigns
 }
 
 // NewTemplate crea un Template con el Environment por defecto (singleton).
@@ -37,6 +41,10 @@ func newTemplateWithEnv(env *Environment) *Template {
 
 // Parse parsea source usando un Environment fresco con la configuración por defecto.
 // Para usar un Environment customizado, usa ParseWithEnv.
+//
+// Parse es costoso: tokeniza el source y construye el AST completo en cada llamada.
+// En servidores web que renderizan el mismo template repetidamente, usa TemplateCache
+// para parsear una sola vez y renderizar muchas veces.
 func Parse(source string, options map[string]interface{}) (*Template, error) {
 	return ParseWithEnv(source, NewEnvironment(), options)
 }
@@ -69,11 +77,11 @@ func (t *Template) Parse(source string, options map[string]interface{}) (templat
 			templateResult = nil
 		}
 	}()
-	parseContext := NewParseContext(options)
+	parseContext := engine.NewParseContext(options)
 	parseContext.Environment = t.Environment
 
 	tokenizer := parseContext.NewTokenizer(source, 1, false)
-	doc, err := ParseDocument(tokenizer, parseContext)
+	doc, err := engine.ParseDocument(tokenizer, parseContext)
 	if err != nil {
 		return nil, err
 	}
@@ -86,17 +94,25 @@ func (t *Template) Parse(source string, options map[string]interface{}) (templat
 // assigns contiene las variables disponibles en el template.
 // opts puede ser nil para usar los valores por defecto.
 func (t *Template) Render(assigns map[string]interface{}, opts *RenderOptions) (string, error) {
-	return t.renderInternal(assigns, opts)
+	return t.renderInternal(context.Background(), assigns, opts)
+}
+
+// RenderWithContext renderiza el template propagando un context.Context de Go.
+// El contexto permite cancelación del render y propagación de trace IDs
+// (OpenTelemetry, slog, etc.) hasta los tags y filtros custom.
+// Si ctx se cancela durante el render, la operación retorna ctx.Err().
+func (t *Template) RenderWithContext(ctx context.Context, assigns map[string]interface{}, opts *RenderOptions) (string, error) {
+	return t.renderInternal(ctx, assigns, opts)
 }
 
 // RenderWithMap es la API legacy que acepta opciones como map[string]interface{}.
 //
 // Deprecated: usa Render con *RenderOptions.
 func (t *Template) RenderWithMap(assigns map[string]interface{}, options map[string]interface{}) (string, error) {
-	return t.renderInternal(assigns, renderOptionsFromMap(options))
+	return t.renderInternal(context.Background(), assigns, renderOptionsFromMap(options))
 }
 
-func (t *Template) renderInternal(assigns map[string]interface{}, opts *RenderOptions) (renderResult string, err error) {
+func (t *Template) renderInternal(goCtx context.Context, assigns map[string]interface{}, opts *RenderOptions) (renderResult string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("liquid render error: %v", r)
@@ -111,7 +127,13 @@ func (t *Template) renderInternal(assigns map[string]interface{}, opts *RenderOp
 	if assigns != nil {
 		environments = append(environments, assigns)
 	}
-	environments = append(environments, t.Assigns)
+	t.mu.RLock()
+	assignsCopy := make(map[string]interface{}, len(t.Assigns))
+	for k, v := range t.Assigns {
+		assignsCopy[k] = v
+	}
+	t.mu.RUnlock()
+	environments = append(environments, assignsCopy)
 
 	registers := make(map[string]interface{})
 	for k, v := range t.Registers {
@@ -134,19 +156,23 @@ func (t *Template) renderInternal(assigns map[string]interface{}, opts *RenderOp
 		outerScope[k] = v
 	}
 
-	ctx := NewContext(
-		environments,
-		outerScope,
-		registers,
-		rethrowErrors,
-		t.ResourceLimits.Fork(), // fresh counters per render, same configured limits
-		[]map[string]interface{}{},
-		t.Environment,
-	)
+	ctx := engine.NewContext(engine.ContextConfig{
+		Environments:       environments,
+		OuterScope:         outerScope,
+		Registers:          registers,
+		RethrowErrors:      rethrowErrors,
+		ResourceLimits:     t.ResourceLimits.Fork(), // fresh counters per render, same configured limits
+		StaticEnvironments: []map[string]interface{}{},
+		Environment:        t.Environment,
+	})
 
+	ctx.GoCtx = goCtx
+
+	ctx.AutoEscape = true // secure default: HTML-escape all output
 	if opts != nil {
 		ctx.StrictVariables = opts.StrictVariables
 		ctx.StrictFilters = opts.StrictFilters
+		ctx.AutoEscape = !opts.DisableAutoEscape
 	}
 
 	ctx.TemplateName = t.Name
@@ -157,4 +183,11 @@ func (t *Template) renderInternal(assigns map[string]interface{}, opts *RenderOp
 		return "", err
 	}
 	return sb.String(), nil
+}
+
+// SetAssign sets a template-level assign variable in a thread-safe manner.
+func (t *Template) SetAssign(key string, value interface{}) {
+	t.mu.Lock()
+	t.Assigns[key] = value
+	t.mu.Unlock()
 }
