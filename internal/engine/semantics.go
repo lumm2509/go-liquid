@@ -20,7 +20,7 @@ func IsTruthy(v interface{}) bool {
 		return val != 0
 	case float64:
 		return val != 0
-	// D6: fast path for dominant Liquid collection types — avoids reflect.ValueOf
+	// D6: fast path for dominant collection types — avoids reflect.ValueOf
 	case []interface{}:
 		return len(val) > 0
 	case map[string]interface{}:
@@ -37,7 +37,6 @@ func IsTruthy(v interface{}) bool {
 	}
 }
 
-// CompareValues compares two values for ordering. Returns -1, 0, or 1.
 func CompareValues(a, b interface{}) int {
 	if a == nil && b == nil {
 		return 0
@@ -84,7 +83,7 @@ func CompareValues(a, b interface{}) int {
 		return 1
 	}
 
-	// D7: UtilsToString has fast paths for all primitive types — avoids fmt.Sprintf alloc
+	// D7: UtilsToString avoids fmt.Sprintf alloc for primitives
 	return strings.Compare(UtilsToString(a), UtilsToString(b))
 }
 

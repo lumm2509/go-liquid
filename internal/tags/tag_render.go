@@ -83,7 +83,6 @@ func (r *Render) parseAttributes(markup string, ctx engine.TagParseContext) {
 }
 
 // PreloadPartial implements engine.StaticPartialLoader.
-// Only called when TemplateName is a string literal (set during NewRender).
 func (r *Render) PreloadPartial(pc engine.TagParseContext) error {
 	if r.TemplateName == "" {
 		return nil // dynamic template name — cannot preload at parse time

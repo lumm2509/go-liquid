@@ -1,52 +1,36 @@
 package liquid
 
-// ErrorMode controla cómo el engine maneja errores en tiempo de render.
 type ErrorMode int
 
 const (
-	// ErrorModeLax (default): errores no-fatales no detienen el render.
-	// Variables no encontradas devuelven "", filtros no encontrados pasan el input.
+	// ErrorModeLax (default): missing variables return "", unknown filters pass input unchanged
 	ErrorModeLax ErrorMode = iota
-	// ErrorModeStrict: cualquier error de runtime detiene el render y retorna error.
+	// ErrorModeStrict: any runtime error stops the render and returns an error
 	ErrorModeStrict
 )
 
-// RenderOptions configura el comportamiento de Template.Render.
-// Todos los campos tienen un valor cero que corresponde al comportamiento por defecto.
+// RenderOptions configures Template.Render behavior. All fields default to zero = safe defaults.
 type RenderOptions struct {
-	// StrictVariables retorna error si se accede a una variable no definida.
-	// Default: false (variable no encontrada devuelve "").
+	// StrictVariables returns an error on undefined variable access
 	StrictVariables bool
 
-	// StrictFilters retorna error si se usa un filtro no registrado.
-	// Default: false (filtro no encontrado pasa el input sin modificar).
+	// StrictFilters returns an error when an unregistered filter is used
 	StrictFilters bool
 
-	// RethrowErrors convierte panics internos en errors retornados.
-	// Default: false.
 	RethrowErrors bool
 
-	// DisableAutoEscape desactiva el escape automático de HTML en variables renderizadas.
-	// Por defecto el escape automático está ACTIVO (secure-by-default).
-	// Usa el filtro {{ var | raw }} para emitir HTML sin escapar cuando AutoEscape está activo.
-	// Setea DisableAutoEscape: true para restaurar el comportamiento anterior (sin escape).
+	// DisableAutoEscape disables HTML auto-escaping (on by default); use {{ v | raw }} to emit safe HTML
 	DisableAutoEscape bool
 
-	// Registers permite pasar estado adicional accesible desde tags custom.
+	// Registers passes extra state accessible from custom tags
 	Registers map[string]interface{}
 }
 
-// ParseOptions configura el comportamiento de Parse / ParseWithEnv.
-// Úsalo con ParseWithOptions para tipado seguro; o pasa nil para defaults.
 type ParseOptions struct {
-	// ErrorMode controla cómo se reportan errores de sintaxis.
 	ErrorMode ErrorMode
-
-	// Locale configura las traducciones para tags que soportan i18n.
-	Locale *I18n
+	Locale    *I18n
 }
 
-// toMap convierte ParseOptions al formato interno de mapa de opciones.
 func (o *ParseOptions) toMap() map[string]interface{} {
 	m := make(map[string]interface{})
 	switch o.ErrorMode {
@@ -61,8 +45,7 @@ func (o *ParseOptions) toMap() map[string]interface{} {
 	return m
 }
 
-// renderOptionsFromMap convierte el formato legacy map[string]interface{}
-// a *RenderOptions. Para uso interno de RenderWithMap.
+// renderOptionsFromMap converts the legacy map format; used by RenderWithMap
 func renderOptionsFromMap(m map[string]interface{}) *RenderOptions {
 	if m == nil {
 		return nil

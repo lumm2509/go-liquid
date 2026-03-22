@@ -9,7 +9,7 @@ import (
 	"github.com/go-liquid/internal/runtime"
 )
 
-// Type aliases — engine re-exports parser primitives for internal use.
+// re-exported parser primitives for internal use
 type Tokenizer = parser.Tokenizer
 type Token = parser.Token
 type TokenType = parser.TokenType
@@ -23,7 +23,6 @@ func NewTokenizer(source string, startLine int, forLiquidTag bool) *Tokenizer {
 	return parser.NewTokenizer(source, startLine, forLiquidTag)
 }
 
-// Token type constants re-exported from internal/parser.
 const (
 	IdToken          = parser.IdToken
 	StringToken      = parser.StringToken
@@ -108,8 +107,7 @@ type RenderContext interface {
 	ApplyGlobalFilter(obj interface{}) interface{}
 	NewIsolatedSubcontext() RenderContext
 	MergeSubcontext(sub RenderContext)
-	// Context returns the Go context for this render (for cancellation and tracing).
-	// Returns context.Background() if no context was set.
+	// Context returns the Go context; returns context.Background() if none was set
 	Context() context.Context
 }
 
@@ -136,13 +134,11 @@ type StaticPartialLoader interface {
 	PreloadPartial(pc TagParseContext) error
 }
 
-// TagFactory is the function type for registering tags in the Environment.
 type TagFactory func(tagName string, markup string, parseContext TagParseContext) (Tag, error)
 
-// UnknownTagHandler is called during parsing when an unrecognised tag is encountered.
+// UnknownTagHandler is called during parsing when an unrecognised tag is encountered
 type UnknownTagHandler func(tagName string, tagMarkup string) (bool, error)
 
-// Node is implemented by every AST node that can render itself.
 type Node interface {
 	RenderToOutputBuffer(ctx RenderContext, output *strings.Builder) error
 	IsBlank() bool

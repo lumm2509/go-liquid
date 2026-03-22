@@ -26,7 +26,6 @@ type ScopeStack struct {
 	extra  []map[string]interface{} // only used when depth > maxInlineScopes
 }
 
-// newScopeStack returns a ScopeStack pre-loaded with an initial scope.
 func newScopeStack(initial map[string]interface{}) ScopeStack {
 	var s ScopeStack
 	s.inline[0] = initial
@@ -166,8 +165,6 @@ func NewContext(cfg ContextConfig) *Context {
 	return ctx
 }
 
-// --- RenderContext interface implementation ---
-
 func (c *Context) Get(expression string) interface{} {
 	if c.runtimeExprCache == nil {
 		c.runtimeExprCache = make(map[string]interface{}, 8)
@@ -183,8 +180,7 @@ func (c *Context) Set(key string, value interface{}) {
 	c.Scopes.Top()[key] = value
 }
 
-// Context returns the Go context associated with this render, or
-// context.Background() if none was set via RenderWithContext.
+// Context returns the Go context, or context.Background() if none was set
 func (c *Context) Context() context.Context {
 	if c.GoCtx != nil {
 		return c.GoCtx
@@ -275,7 +271,7 @@ func (c *Context) lookupAndEvaluate(obj map[string]interface{}, key string, rais
 		return nil, nil
 	}
 
-	// Fast path: tipos primitivos comunes nunca son funciones — evita reflect.
+	// fast path: common primitives are never functions — skip reflect
 	switch value.(type) {
 	case string, int, int64, float64, bool, []interface{}, map[string]interface{}:
 		return value, nil
@@ -357,7 +353,7 @@ func (c *Context) NewIsolatedSubcontext() RenderContext {
 	sub.ExceptionRenderer = c.ExceptionRenderer
 	sub.GoCtx = c.GoCtx
 	sub.filterDispatcher = nil
-	// Errors/Warnings/interrupts start nil — append/len are nil-safe in Go.
+	// errors/warnings/interrupts start nil — append/len are nil-safe
 	return sub
 }
 

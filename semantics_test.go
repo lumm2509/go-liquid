@@ -6,10 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestTruthinessTable es el Semantic Lock Test para IsTruthy.
-// Esta tabla NO SE MODIFICA sin revisión explícita y un commit que
-// documente exactamente qué divergencia se introduce y por qué.
-// Es el contrato semántico del engine respecto a truthiness.
+// semantic lock for IsTruthy — do not change without an explicit commit documenting the divergence
 func TestTruthinessTable(t *testing.T) {
 	cases := []struct {
 		input    interface{}
@@ -43,8 +40,7 @@ func TestTruthinessTable(t *testing.T) {
 	}
 }
 
-// TestComparisons es el Semantic Lock Test para CompareValues.
-// Documenta el comportamiento exacto para tipos mixtos.
+// semantic lock for CompareValues — documents exact behavior for mixed types
 func TestComparisons(t *testing.T) {
 	cases := []struct {
 		a, b     interface{}

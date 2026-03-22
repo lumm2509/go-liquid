@@ -12,13 +12,10 @@ type RenderMetrics struct {
 	Warnings int
 }
 
-// RenderWithMetrics renderiza el template y retorna métricas básicas de observabilidad.
-// Útil para detectar templates problemáticos en producción (errores frecuentes, warnings).
 func (t *Template) RenderWithMetrics(assigns map[string]interface{}, opts *RenderOptions) (string, RenderMetrics, error) {
 	return t.renderWithMetricsInternal(context.Background(), assigns, opts)
 }
 
-// RenderWithContextAndMetrics combina propagación de context.Context con recolección de métricas.
 func (t *Template) RenderWithContextAndMetrics(ctx context.Context, assigns map[string]interface{}, opts *RenderOptions) (string, RenderMetrics, error) {
 	return t.renderWithMetricsInternal(ctx, assigns, opts)
 }

@@ -38,7 +38,6 @@ type Variable struct {
 	lineNumber int
 }
 
-// NamedArguments holds keyword arguments passed to a filter.
 type NamedArguments map[string]interface{}
 
 func (n NamedArguments) Evaluate(ctx RenderContext) interface{} {
@@ -49,7 +48,6 @@ func (n NamedArguments) Evaluate(ctx RenderContext) interface{} {
 	return result
 }
 
-// NewVariable parses markup into a Variable node.
 func NewVariable(markup string, parseContext *ParseContext) *Variable {
 	v := &Variable{
 		Markup:     markup,
@@ -190,12 +188,9 @@ func splitByCommaRespectingQuotes(s string) []string {
 	return parts
 }
 
-// Render evaluates the variable and all its filters, returning the final value.
 func (v *Variable) Render(ctx RenderContext) interface{} {
-	// Fast path: when ctx is *Context and every filter is a registered builtin,
-	// keep values as Value throughout the chain — no interface{} boxing between filters.
-	// Single pass collects FilterFunc pointers while checking; avoids a second
-	// map lookup per filter during execution (n lookups instead of 2n).
+	// fast path: all-builtin filters — values stay as Value throughout, no boxing.
+	// single pass collects FilterFunc pointers (n lookups instead of 2n)
 	if c, ok := ctx.(*Context); ok && len(v.Filters) > 0 {
 		fns := make([]FilterFunc, len(v.Filters))
 		allBuiltin := true
@@ -227,7 +222,7 @@ func (v *Variable) Render(ctx RenderContext) interface{} {
 		}
 	}
 
-	// Standard path: used for custom/external filters or non-*Context implementations.
+	// standard path: custom/external filters or non-*Context
 	obj := ctx.Evaluate(v.Name)
 	sp := filterArgsPool.Get().(*[]interface{})
 	scratch := *sp
@@ -252,7 +247,6 @@ func (v *Variable) Render(ctx RenderContext) interface{} {
 	return ctx.ApplyGlobalFilter(obj)
 }
 
-// RenderToOutputBuffer implements Node.
 func (v *Variable) RenderToOutputBuffer(ctx RenderContext, output *strings.Builder) error {
 	obj := v.Render(ctx)
 	autoEscape := false
@@ -265,7 +259,7 @@ func (v *Variable) RenderToOutputBuffer(ctx RenderContext, output *strings.Build
 
 func renderObjToOutput(obj interface{}, output *strings.Builder, autoEscape bool, depth int) {
 	if depth > 10 {
-		return // cortar silenciosamente — slices anidados profundos no tienen sentido en Liquid
+		return // deeply nested slices have no meaning in Liquid; cut silently
 	}
 	if obj == nil {
 		return
@@ -323,9 +317,7 @@ func renderObjToOutput(obj interface{}, output *strings.Builder, autoEscape bool
 func (v *Variable) IsBlank() bool   { return false }
 func (v *Variable) LineNumber() int { return v.lineNumber }
 
-// writeHTMLEscaped writes s to b with HTML escaping, without allocating an
-// intermediate string. It writes the runs between special characters as
-// zero-copy sub-slices of s (the compiler optimises WriteString(s[i:j])).
+// writeHTMLEscaped escapes s into b without allocating; zero-copy runs between special chars
 func writeHTMLEscaped(b *strings.Builder, s string) {
 	last := 0
 	for i := 0; i < len(s); i++ {

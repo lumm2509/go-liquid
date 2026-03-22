@@ -70,8 +70,7 @@ func (rl *ResourceLimits) Reached() bool {
 	return rl.reachedLimit
 }
 
-// Fork crea un nuevo ResourceLimits con los mismos límites configurados
-// pero con contadores limpios. Usar en cada Render para evitar compartir estado.
+// Fork returns a new ResourceLimits with the same limits but fresh counters
 func (rl *ResourceLimits) Fork() *ResourceLimits {
 	fresh := &ResourceLimits{
 		RenderLengthLimit: rl.RenderLengthLimit,

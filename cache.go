@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// hashSeed is a random seed generated once at program start.
-// maphash.String uses AES hardware instructions on amd64/arm64 — ~3× faster than FNV-1a.
+// maphash uses AES hardware instructions on amd64/arm64 — ~3× faster than FNV-1a
 var hashSeed = maphash.MakeSeed()
 
 // TemplateCache stores parsed templates keyed by an arbitrary string.
@@ -50,8 +49,7 @@ type cachedTemplate struct {
 	lastAccess atomic.Int64 // Unix seconds; updated atomically on hit — no lock needed
 }
 
-// NewTemplateCache creates a TemplateCache that uses env for all Parse calls.
-// Pass nil to use a fresh default Environment per entry.
+// NewTemplateCache creates a cache using env for all Parse calls; nil = fresh default env per entry.
 func NewTemplateCache(env *Environment) *TemplateCache {
 	c := &TemplateCache{env: env}
 	for i := range c.shards {
@@ -60,25 +58,21 @@ func NewTemplateCache(env *Environment) *TemplateCache {
 	return c
 }
 
-// shardFor returns the shard index for a given key using maphash.
-// maphash.String uses AES hardware instructions (amd64/arm64) — ~3× faster than FNV-1a.
 func shardFor(key string) int {
 	return int(maphash.String(hashSeed, key) & 15)
 }
 
-// Get returns the cached template for key. If no entry exists (or it has expired),
-// it parses source and stores the result.
 func (c *TemplateCache) Get(key, source string) (*Template, error) {
 	s := &c.shards[shardFor(key)]
 
-	// Fast path: read lock only — no write lock on cache hit.
+	// fast path: read lock only
 	s.mu.RLock()
 	entry, ok := s.cache[key]
 	s.mu.RUnlock()
 
 	if ok {
 		if c.TTL > 0 && time.Since(entry.insertedAt) > c.TTL {
-			// Expired — fall through to write path
+			// expired — fall through to write path
 		} else {
 			entry.lastAccess.Store(time.Now().Unix())
 			return entry.tmpl, nil
@@ -88,7 +82,7 @@ func (c *TemplateCache) Get(key, source string) (*Template, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Double-check under write lock
+	// double-check under write lock
 	if entry, ok = s.cache[key]; ok {
 		if c.TTL == 0 || time.Since(entry.insertedAt) <= c.TTL {
 			entry.lastAccess.Store(time.Now().Unix())
@@ -106,7 +100,6 @@ func (c *TemplateCache) Get(key, source string) (*Template, error) {
 		return nil, err
 	}
 
-	// Per-shard size limit: MaxSize / 16, minimum 1.
 	if c.MaxSize > 0 {
 		limit := c.MaxSize / 16
 		if limit < 1 {
@@ -123,8 +116,7 @@ func (c *TemplateCache) Get(key, source string) (*Template, error) {
 	return t, nil
 }
 
-// evictLRUFromShard removes the least recently accessed entry from shard s.
-// Must be called with s.mu held for writing. O(n/16) — fast in practice.
+// evictLRUFromShard must be called with s.mu held for writing
 func evictLRUFromShard(s *cacheShard) {
 	var lruKey string
 	var lruTime int64 = 1<<63 - 1
@@ -139,7 +131,6 @@ func evictLRUFromShard(s *cacheShard) {
 	}
 }
 
-// Invalidate removes a single entry from the cache.
 func (c *TemplateCache) Invalidate(key string) {
 	s := &c.shards[shardFor(key)]
 	s.mu.Lock()
@@ -147,7 +138,6 @@ func (c *TemplateCache) Invalidate(key string) {
 	s.mu.Unlock()
 }
 
-// Flush removes all entries from all shards.
 func (c *TemplateCache) Flush() {
 	for i := range c.shards {
 		s := &c.shards[i]
@@ -157,8 +147,6 @@ func (c *TemplateCache) Flush() {
 	}
 }
 
-// Len returns the total number of templates currently in the cache.
-// Safe for concurrent use.
 func (c *TemplateCache) Len() int {
 	total := 0
 	for i := range c.shards {

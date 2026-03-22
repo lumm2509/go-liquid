@@ -8,9 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestConcurrentRender verifica que el mismo *Template puede renderizarse
-// concurrentemente desde múltiples goroutines sin data races ni resultados incorrectos.
-// Ejecutar con: go test -race -count=1 ./...
+// same *Template rendered concurrently from many goroutines must be race-free; run with -race
 func TestConcurrentRender(t *testing.T) {
 	tmpl, err := Parse(`{{ name | upcase }} {% if active %}yes{% endif %}`, nil)
 	require.NoError(t, err)
@@ -48,7 +46,7 @@ func TestConcurrentRender(t *testing.T) {
 	}
 }
 
-// TestConcurrentRenderWithFilters verifica concurrencia con filtros encadenados.
+// concurrent renders with chained filters must be race-free
 func TestConcurrentRenderWithFilters(t *testing.T) {
 	tmpl, err := Parse(`{{ items | join: ", " | upcase }}`, nil)
 	require.NoError(t, err)
@@ -86,7 +84,7 @@ func TestConcurrentRenderWithFilters(t *testing.T) {
 	}
 }
 
-// TestConcurrentRenderWithAssign verifica que assign no introduce data races.
+// assign must not introduce data races under concurrent renders
 func TestConcurrentRenderWithAssign(t *testing.T) {
 	tmpl, err := Parse(`{% assign result = name | upcase %}{{ result }}`, nil)
 	require.NoError(t, err)
@@ -119,7 +117,7 @@ func TestConcurrentRenderWithAssign(t *testing.T) {
 	}
 }
 
-// TestConcurrentTagForName verifica que TagForName es safe bajo lectura concurrente.
+// TagForName must be safe for concurrent reads
 func TestConcurrentTagForName(t *testing.T) {
 	env := NewEnvironment()
 
@@ -145,8 +143,7 @@ func TestConcurrentTagForName(t *testing.T) {
 	}
 }
 
-// TestConcurrentRegisterTagAndRender verifica que registrar un tag mientras
-// se renderiza concurrentemente no causa data races.
+// registering a tag while rendering concurrently must not cause data races
 func TestConcurrentRegisterTagAndRender(t *testing.T) {
 	env := NewEnvironment()
 
@@ -156,7 +153,7 @@ func TestConcurrentRegisterTagAndRender(t *testing.T) {
 	const goroutines = 30
 	var wg sync.WaitGroup
 
-	// Goroutines que renderizan
+	// rendering goroutines
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
 		go func(n int) {
@@ -165,7 +162,7 @@ func TestConcurrentRegisterTagAndRender(t *testing.T) {
 		}(i)
 	}
 
-	// Goroutines que registran tags (el env no está frozen, simula setup tardío)
+	// tag-registration goroutines — env is not frozen, simulates late setup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(n int) {
@@ -177,9 +174,7 @@ func TestConcurrentRegisterTagAndRender(t *testing.T) {
 	wg.Wait()
 }
 
-// TestConcurrentIncrementIsolation verifica que increment/decrement con la misma
-// variable en renders concurrentes no se interfieren entre sí.
-// El contador vive en los Registers de cada render, no en el Template.
+// counter lives in per-render Registers, so concurrent increments must not interfere
 func TestConcurrentIncrementIsolation(t *testing.T) {
 	tmpl, err := Parse(`{% increment x %}{% increment x %}{% increment x %}`, nil)
 	require.NoError(t, err)

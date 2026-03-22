@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Helper para tests de tags via template completo.
 func mustRender(t *testing.T, src string, data map[string]interface{}) string {
 	t.Helper()
 	tmpl, err := Parse(src, nil)

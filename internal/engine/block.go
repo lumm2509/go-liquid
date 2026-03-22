@@ -39,10 +39,9 @@ func (b *Block) Parse(tokenizer *Tokenizer) error {
 	return nil
 }
 
-// ParseContext returns the TagParseContext stored at construction time.
 func (b *Block) ParseContext() TagParseContext { return b.parseContext }
 
-// UnknownTag handles end-tag and errors. Subclasses may override.
+// UnknownTag handles end-tag and errors; subclasses may override
 func (b *Block) UnknownTag(tag string, markup string) (bool, error) {
 	if tag == "end"+b.TagBase.name {
 		return false, nil

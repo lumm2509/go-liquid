@@ -132,8 +132,7 @@ func (vl *VariableLookup) Evaluate(ctx *Context) interface{} {
 		return nil
 	}
 
-	// D8: forloop fast path — bypasses the scope scan entirely.
-	// ctx.Forloop is non-nil exactly while the for-tag body is executing.
+	// D8: forloop fast path — ctx.Forloop is non-nil only inside the for-tag body
 	var obj interface{}
 	if nameStr == "forloop" && ctx.Forloop != nil {
 		obj = ctx.Forloop
@@ -162,7 +161,7 @@ func (vl *VariableLookup) accessProperty(ctx *Context, obj interface{}, key inte
 		return nil
 	}
 
-	// Fast path: map[string]interface{} is the dominant case in Liquid — avoid reflect entirely
+	// fast path: map[string]interface{} is the dominant case — avoid reflect
 	if m, ok := obj.(map[string]interface{}); ok {
 		if keyStr, ok := key.(string); ok {
 			if !vl.LookupCommand(index) {
@@ -236,7 +235,7 @@ func (vl *VariableLookup) accessProperty(ctx *Context, obj interface{}, key inte
 
 	if rv.Kind() == reflect.Struct {
 		if keyStr, ok := key.(string); ok {
-			// D2: O(1) field lookup via cached index map instead of linear FieldByName scan.
+			// D2: O(1) cached field index instead of linear FieldByName scan
 			if idx, found := cachedFieldIndex(rv.Type(), keyStr); found {
 				field := rv.Field(idx)
 				if field.CanInterface() {

@@ -30,7 +30,6 @@ type Value struct {
 // Compile-time size assertion: Value must be exactly 48 bytes.
 var _ [48]byte = [unsafe.Sizeof(Value{})]byte{}
 
-// Kind returns the KindXxx constant for this value.
 func (v Value) Kind() uint8 { return v.kind }
 
 // Constructors
@@ -84,8 +83,7 @@ func (v Value) Bool() bool { return v.num != 0 }
 // Object returns the object payload; only valid when Kind() == KindObject.
 func (v Value) Object() interface{} { return v.pval }
 
-// ToInterface converts the Value to interface{} for interoperability with
-// legacy interface{}-based code during the migration to the Value type.
+// ToInterface converts to interface{} for interoperability during migration to Value type
 func (v Value) ToInterface() interface{} {
 	switch v.kind {
 	case KindNil:

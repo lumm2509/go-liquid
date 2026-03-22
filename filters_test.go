@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Helper para tests de filtros via template completo.
+// helper for filter tests via a full template render.
 func renderFilter(t *testing.T, filter string, data map[string]interface{}) string {
 	t.Helper()
 	tmpl, err := Parse(fmt.Sprintf(`{{ val | %s }}`, filter), nil)
@@ -156,7 +156,7 @@ func TestTimes(t *testing.T) {
 func TestDividedBy(t *testing.T) {
 	f := StandardFilters{}
 	require.Equal(t, 2.0, f.DividedBy(6, 3))
-	require.Equal(t, 0.0, f.DividedBy(10, 0)) // división por cero → 0
+	require.Equal(t, 0.0, f.DividedBy(10, 0)) // divide by zero → 0
 	require.Equal(t, 2.5, f.DividedBy(5, 2))
 }
 
@@ -166,7 +166,7 @@ func TestModulo(t *testing.T) {
 	f := StandardFilters{}
 	require.Equal(t, 1.0, f.Modulo(7, 3))
 	require.Equal(t, 0.0, f.Modulo(6, 3))
-	require.Equal(t, 0.0, f.Modulo(5, 0)) // módulo por cero → 0
+	require.Equal(t, 0.0, f.Modulo(5, 0)) // modulo by zero → 0
 }
 
 // --- Round / Ceil / Floor ---
@@ -319,11 +319,11 @@ func TestWhere(t *testing.T) {
 
 func TestDate(t *testing.T) {
 	f := StandardFilters{}
-	// nil input retorna input tal cual
+	// nil input passes through unchanged
 	require.Equal(t, nil, f.Date(nil, "%Y"))
-	// formato vacío retorna input tal cual
+	// empty format passes through unchanged
 	require.Equal(t, "2024-01-15", f.Date("2024-01-15", ""))
-	// formato no vacío y fecha válida
+	// non-empty format with valid date
 	result := f.Date("2024-01-15", "%Y")
 	require.Equal(t, "2024", result)
 }

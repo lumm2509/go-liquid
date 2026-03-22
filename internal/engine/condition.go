@@ -114,7 +114,6 @@ func (c *Condition) And(condition *Condition) {
 	c.ChildCondition = condition
 }
 
-// ParseCondition tokenizes markup and builds a Condition chain.
 func ParseCondition(markup string, parseContext TagParseContext) (*Condition, error) {
 	if markup == "" {
 		return nil, nil
@@ -196,7 +195,6 @@ func tokensToMarkup(tokens []Token) string {
 	return sb.String()
 }
 
-// Evaluate evaluates the condition chain against ctx.
 func (c *Condition) Evaluate(ctx *Context) bool {
 	condition := c
 	result := false
@@ -237,7 +235,7 @@ func (c *Condition) interpretCondition(left, right interface{}, op string, ctx *
 	leftVal := maybeLiquidValue(ctx.Evaluate(left))
 	rightVal := maybeLiquidValue(ctx.Evaluate(right))
 
-	// Fast path: switch on pre-compiled opCode — avoids map lookup (~10-15 ns) on every eval.
+	// fast path: pre-compiled opCode avoids map lookup on every eval
 	switch c.opCode {
 	case OpEq:
 		return c.EqualVariables(leftVal, rightVal)
@@ -255,7 +253,7 @@ func (c *Condition) interpretCondition(left, right interface{}, op string, ctx *
 		return evalContains(leftVal, rightVal)
 	}
 
-	// Slow path: unknown/custom operator registered externally via Operators map.
+	// slow path: unknown/custom operator
 	operation, ok := Operators[op]
 	if !ok {
 		if ctx.Environment != nil {
@@ -275,7 +273,7 @@ func (c *Condition) EqualVariables(left, right interface{}) bool {
 	if left == right {
 		return true
 	}
-	// blank/empty symbols must be checked before nil short-circuit: nil == blank is true.
+	// blank/empty must be checked before nil: nil == blank is true
 	if isBlankSymbol(left) {
 		return isBlankValue(right)
 	}
@@ -286,7 +284,7 @@ func (c *Condition) EqualVariables(left, right interface{}) bool {
 		return false
 	}
 
-	// Fast path para tipos primitivos de Liquid (cubre el 95%+ de los casos reales)
+	// fast path for primitive Liquid types (95%+ of real cases)
 	switch l := left.(type) {
 	case string:
 		r, ok := right.(string)
@@ -326,7 +324,6 @@ func (c *Condition) EqualVariables(left, right interface{}) bool {
 	return reflect.DeepEqual(left, right)
 }
 
-// maybeLiquidValue calls ToLiquidValue only for non-primitive types.
 func maybeLiquidValue(v interface{}) interface{} {
 	if v == nil {
 		return nil
@@ -335,8 +332,7 @@ func maybeLiquidValue(v interface{}) interface{} {
 	case string, int, int64, float64, bool:
 		return v
 	case map[string]interface{}, []interface{}:
-		// Dominant Liquid data types — no conversion needed.
-		return v
+		return v // dominant Liquid types — no conversion needed
 	}
 	return ToLiquidValue(v)
 }

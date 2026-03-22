@@ -23,14 +23,13 @@ const (
 	variableIncompleteEnd = `\}\}?`
 )
 
-// Type aliases — implementation lives in internal/parser; root re-exports for public API.
+// re-exported from internal/parser for public API
 type TokenType = parser.TokenType
 type Token = parser.Token
 type StringScanner = parser.StringScanner
 type Tokenizer = parser.Tokenizer
 type Parser = parser.Parser
 
-// Token type constants re-exported from internal/parser.
 const (
 	IdToken          = parser.IdToken
 	StringToken      = parser.StringToken
@@ -73,8 +72,6 @@ var (
 )
 
 
-// Constructor wrappers — allow root-package code to call these without
-// explicit import of internal/parser.
 func NewStringScanner(source string) *StringScanner { return parser.NewStringScanner(source) }
 func NewParser(ss *StringScanner) *Parser           { return parser.NewParser(ss) }
 func Tokenize(input string) ([]Token, error)        { return parser.Tokenize(input) }

@@ -12,8 +12,7 @@ import (
 
 var UnixTimestampRegex = regexp.MustCompile(`^\d+$`)
 
-// mapKeyString returns the string representation of a map key without fmt.Sprintf allocations
-// for the common case where the key is already a string.
+// mapKeyString returns a map key as string, avoiding fmt.Sprintf for the common string-key case
 func mapKeyString(v reflect.Value) string {
 	if v.Kind() == reflect.String {
 		return v.String()
@@ -21,8 +20,7 @@ func mapKeyString(v reflect.Value) string {
 	return fmt.Sprintf("%v", v.Interface())
 }
 
-// Iterable is a lazy sequence — avoids materialising a full []interface{} copy
-// before the for-loop body executes.
+// Iterable is a lazy sequence — avoids materialising a full []interface{} copy before iteration
 type Iterable interface {
 	Len() int
 	At(i int) interface{}
@@ -34,7 +32,7 @@ type interfaceSliceIterable struct{ s []interface{} }
 func (it interfaceSliceIterable) Len() int             { return len(it.s) }
 func (it interfaceSliceIterable) At(i int) interface{} { return it.s[i] }
 
-// reflectSliceIterable wraps any Slice or Array via reflect.Value with no element copies.
+// reflectSliceIterable wraps any slice or array via reflect.Value — no per-element copies
 type reflectSliceIterable struct {
 	rv    reflect.Value
 	start int
@@ -62,12 +60,10 @@ func iterBounds(length int, from, to *int) (int, int) {
 	return start, end
 }
 
-// ToIterable returns an Iterable over the collection window [from, to).
-// For []interface{} it avoids reflection entirely. For typed slices/arrays it
-// wraps the reflect.Value — no per-element allocation until At() is called.
-// Maps are materialised and sorted (same as SliceCollection).
+// ToIterable returns an Iterable over the collection window [from, to); []interface{} skips
+// reflection, typed slices wrap reflect.Value lazily, maps are materialised and sorted
 func ToIterable(collection interface{}, from, to *int) Iterable {
-	// Fast path: []interface{} — no reflection needed.
+	// fast path: []interface{} — no reflection needed
 	if s, ok := collection.([]interface{}); ok {
 		start, end := iterBounds(len(s), from, to)
 		return interfaceSliceIterable{s: s[start:end]}
@@ -75,7 +71,7 @@ func ToIterable(collection interface{}, from, to *int) Iterable {
 
 	rv := reflect.ValueOf(collection)
 
-	// Maps must be materialised to sort by key.
+	// maps must be materialised to sort by key
 	if rv.Kind() == reflect.Map {
 		return interfaceSliceIterable{s: SliceCollection(collection, from, to)}
 	}
@@ -85,7 +81,7 @@ func ToIterable(collection interface{}, from, to *int) Iterable {
 		return reflectSliceIterable{rv: rv, start: start, end: end}
 	}
 
-	// Scalar string — single-element collection.
+	// scalar string — single-element collection
 	if s, ok := collection.(string); ok && s != "" {
 		return interfaceSliceIterable{s: []interface{}{s}}
 	}
@@ -94,7 +90,7 @@ func ToIterable(collection interface{}, from, to *int) Iterable {
 }
 
 func SliceCollection(collection interface{}, from, to *int) []interface{} {
-	// Fast path: map[string]interface{} — avoids reflect.Value map key handling entirely
+	// fast path: map[string]interface{} — avoids reflect.Value map key handling entirely
 	if m, ok := collection.(map[string]interface{}); ok {
 		keys := make([]string, 0, len(m))
 		for k := range m {
@@ -277,7 +273,6 @@ func ToInt(input interface{}) int {
 	return i
 }
 
-// toFloat64 for internal numeric filter use
 func toFloat64(val interface{}) float64 {
 	switch v := val.(type) {
 	case float64:

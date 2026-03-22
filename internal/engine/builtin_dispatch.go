@@ -10,8 +10,7 @@ type FilterFunc func(ctx *Context, input Value, args []Value) Value
 // Populated via RegisterBuiltin from filters/standard_filters.go init().
 var BuiltinFilters = map[string]FilterFunc{}
 
-// RegisterBuiltin registers a built-in filter in the direct-dispatch table.
-// Must be called from init() before any render occurs.
+// RegisterBuiltin must be called from init() before any render occurs
 func RegisterBuiltin(name string, fn FilterFunc) {
 	BuiltinFilters[name] = fn
 }
@@ -25,8 +24,7 @@ var valueSlicePool = sync.Pool{
 	},
 }
 
-// GetValueSlice returns a pooled []Value for use as a filter args buffer.
-// The caller MUST call PutValueSlice when done.
+// GetValueSlice returns a pooled []Value; caller MUST call PutValueSlice when done
 func GetValueSlice() *[]Value {
 	return valueSlicePool.Get().(*[]Value)
 }

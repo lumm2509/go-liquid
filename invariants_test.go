@@ -6,8 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// El mismo Template renderizado dos veces con datos distintos
-// debe producir resultados distintos e independientes.
+// same template rendered twice with different data must produce independent results
 func TestContextDoesNotLeakStateBetweenRenders(t *testing.T) {
 	tmpl, err := Parse(`{{ x }}`, nil)
 	require.NoError(t, err)
@@ -21,7 +20,6 @@ func TestContextDoesNotLeakStateBetweenRenders(t *testing.T) {
 	require.Equal(t, "B", out2)
 }
 
-// Render no debe mutar los datos del usuario.
 func TestRenderDoesNotMutateInput(t *testing.T) {
 	tmpl, err := Parse(`{% for item in items %}{{ item }}{% endfor %}`, nil)
 	require.NoError(t, err)
@@ -36,7 +34,6 @@ func TestRenderDoesNotMutateInput(t *testing.T) {
 	require.Equal(t, items, data["items"].([]string))
 }
 
-// El mismo template renderizado N veces produce el mismo output.
 func TestRenderIsDeterministic(t *testing.T) {
 	tmpl, err := Parse(`{% for i in items %}{{ i | upcase }}{% endfor %}`, nil)
 	require.NoError(t, err)
@@ -54,26 +51,24 @@ func TestRenderIsDeterministic(t *testing.T) {
 	}
 }
 
-// Variables asignadas en un render no deben persistir en Template.InstanceAssigns.
+// assign must not persist into Template.InstanceAssigns across renders
 func TestAssignDoesNotLeakBetweenRenders(t *testing.T) {
 	tmpl, err := Parse(`{% assign x = "leaked" %}{{ x }}`, nil)
 	require.NoError(t, err)
 
-	// Primer render: assign funciona dentro del render
 	out1, err := tmpl.Render(map[string]interface{}{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "leaked", out1)
 
-	// InstanceAssigns no debe estar contaminado
 	require.Empty(t, tmpl.InstanceAssigns, "assign leaked into Template.InstanceAssigns")
 
-	// Segundo render: x sigue funcionando (viene del assign tag, no del leak)
+	// x resolves from assign tag each render, not from a leaked state
 	out2, err := tmpl.Render(map[string]interface{}{}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "leaked", out2)
 }
 
-// Scope de for loop no debe filtrarse fuera del loop.
+// for loop variable must not be visible outside the loop
 func TestForLoopVariableDoesNotLeakOutOfScope(t *testing.T) {
 	tmpl, err := Parse(`{% for i in items %}{% endfor %}{{ i }}`, nil)
 	require.NoError(t, err)
@@ -83,8 +78,7 @@ func TestForLoopVariableDoesNotLeakOutOfScope(t *testing.T) {
 	require.Equal(t, "", out)
 }
 
-// increment/decrement no deben mutar el mapa de assigns del usuario.
-// Regresión: tag_counters usaba context.Environments[0] que es el mapa del usuario.
+// regression: tag_counters previously wrote into context.Environments[0] (user map)
 func TestIncrementDoesNotMutateAssigns(t *testing.T) {
 	tmpl, err := Parse(`{% increment counter %}{% increment counter %}`, nil)
 	require.NoError(t, err)
@@ -107,7 +101,6 @@ func TestDecrementDoesNotMutateAssigns(t *testing.T) {
 	require.Equal(t, "original", assigns["counter"], "decrement must not mutate user assigns")
 }
 
-// El mismo Template puede usarse múltiples veces con datos distintos correctamente.
 func TestTemplateIsReusable(t *testing.T) {
 	tmpl, err := Parse(`Hello {{ name }}!`, nil)
 	require.NoError(t, err)

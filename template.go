@@ -10,9 +10,7 @@ import (
 	"github.com/go-liquid/internal/runtime"
 )
 
-// renderBuilderPool reuses strings.Builder backing buffers across renders.
-// Pre-grown to 4 KiB to avoid the repeated doubling allocations for typical template output.
-// Builders that grew beyond 512 KiB are not returned to avoid retaining large buffers.
+// pre-grown to 4 KiB; builders that grew beyond 512 KiB are not returned to avoid retaining large buffers
 var renderBuilderPool = sync.Pool{
 	New: func() interface{} {
 		sb := &strings.Builder{}
@@ -30,11 +28,10 @@ type Template struct {
 	Registers       map[string]interface{}
 	Assigns         map[string]interface{}
 	InstanceAssigns map[string]interface{}
-	mu              sync.RWMutex // protege Assigns e InstanceAssigns
+	mu              sync.RWMutex
 }
 
-// NewTemplate crea un Template con el Environment por defecto (singleton).
-// Prefer ParseWithEnv para control explícito del entorno.
+// NewTemplate creates a Template with the default (singleton) Environment.
 func NewTemplate() *Template {
 	env := DefaultEnvironment()
 	return newTemplateWithEnv(env)
@@ -50,26 +47,18 @@ func newTemplateWithEnv(env *Environment) *Template {
 	}
 }
 
-// Parse parsea source usando un Environment fresco con la configuración por defecto.
-// Para usar un Environment customizado, usa ParseWithEnv.
-//
-// Parse es costoso: tokeniza el source y construye el AST completo en cada llamada.
-// En servidores web que renderizan el mismo template repetidamente, usa TemplateCache
-// para parsear una sola vez y renderizar muchas veces.
+// Parse parses source with a fresh default Environment.
+// Parsing is expensive; use TemplateCache when rendering the same template repeatedly.
 func Parse(source string, options map[string]interface{}) (*Template, error) {
 	return ParseWithEnv(source, NewEnvironment(), options)
 }
 
-// ParseWithEnv parsea source usando el Environment proporcionado.
-// El Environment permite registrar tags y filtros custom, configurar el FileSystem, etc.
 func ParseWithEnv(source string, env *Environment, options map[string]interface{}) (*Template, error) {
 	t := newTemplateWithEnv(env)
 	return t.Parse(source, options)
 }
 
-// ParseWithOptions parsea source usando un Environment y opciones tipadas.
-// Es la forma idiomática de pasar opciones de parseo; equivalente a
-// ParseWithEnv con opciones en mapa pero con tipos seguros.
+// ParseWithOptions is the type-safe alternative to ParseWithEnv.
 func ParseWithOptions(source string, env *Environment, opts *ParseOptions) (*Template, error) {
 	if env == nil {
 		env = NewEnvironment()
@@ -101,24 +90,16 @@ func (t *Template) Parse(source string, options map[string]interface{}) (templat
 	return t, nil
 }
 
-// Render renderiza el template con los datos y opciones proporcionados.
-// assigns contiene las variables disponibles en el template.
-// opts puede ser nil para usar los valores por defecto.
 func (t *Template) Render(assigns map[string]interface{}, opts *RenderOptions) (string, error) {
 	return t.renderInternal(context.Background(), assigns, opts)
 }
 
-// RenderWithContext renderiza el template propagando un context.Context de Go.
-// El contexto permite cancelación del render y propagación de trace IDs
-// (OpenTelemetry, slog, etc.) hasta los tags y filtros custom.
-// Si ctx se cancela durante el render, la operación retorna ctx.Err().
+// RenderWithContext propagates a Go context; returns ctx.Err() on cancellation.
 func (t *Template) RenderWithContext(ctx context.Context, assigns map[string]interface{}, opts *RenderOptions) (string, error) {
 	return t.renderInternal(ctx, assigns, opts)
 }
 
-// RenderWithMap es la API legacy que acepta opciones como map[string]interface{}.
-//
-// Deprecated: usa Render con *RenderOptions.
+// Deprecated: use Render with *RenderOptions.
 func (t *Template) RenderWithMap(assigns map[string]interface{}, options map[string]interface{}) (string, error) {
 	return t.renderInternal(context.Background(), assigns, renderOptionsFromMap(options))
 }
@@ -138,7 +119,7 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 	if assigns != nil {
 		environments = append(environments, assigns)
 	}
-	// D9: skip allocation when the template-level maps are empty (common case).
+	// D9: skip copy when maps are empty (common case)
 	t.mu.RLock()
 	if len(t.Assigns) > 0 {
 		assignsCopy := make(map[string]interface{}, len(t.Assigns))
@@ -167,7 +148,7 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 		rethrowErrors = opts.RethrowErrors
 	}
 
-	// Copy InstanceAssigns to prevent mutation across renders (assign tag writes to Scopes[0])
+	// copy InstanceAssigns — assign tag writes to Scopes[0], must not mutate across renders
 	outerScope := make(map[string]interface{}, len(t.InstanceAssigns))
 	for k, v := range t.InstanceAssigns {
 		outerScope[k] = v
@@ -178,7 +159,7 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 		OuterScope:         outerScope,
 		Registers:          registers,
 		RethrowErrors:      rethrowErrors,
-		ResourceLimits:     t.ResourceLimits.Fork(), // fresh counters per render, same configured limits
+		ResourceLimits:     t.ResourceLimits.Fork(), // fresh counters, same limits
 		StaticEnvironments: []map[string]interface{}{},
 		Environment:        t.Environment,
 	})
@@ -194,7 +175,7 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 
 	ctx.TemplateName = t.Name
 
-	// D3: reuse the builder's backing buffer; strings.Clone makes an independent copy.
+	// D3: reuse builder backing buffer; strings.Clone makes an independent copy
 	sb := renderBuilderPool.Get().(*strings.Builder)
 	sb.Reset()
 	err = t.Root.RenderToOutputBuffer(ctx, sb)
@@ -208,7 +189,6 @@ func (t *Template) renderInternal(goCtx context.Context, assigns map[string]inte
 	return result, nil
 }
 
-// SetAssign sets a template-level assign variable in a thread-safe manner.
 func (t *Template) SetAssign(key string, value interface{}) {
 	t.mu.Lock()
 	t.Assigns[key] = value

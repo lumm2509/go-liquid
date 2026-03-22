@@ -185,7 +185,6 @@ func (b *BlockBody) whitespaceHandler(token string, parseContext *ParseContext) 
 	}
 }
 
-// RenderToOutputBuffer renders all nodes into output.
 func (b *BlockBody) RenderToOutputBuffer(ctx RenderContext, output *strings.Builder) error {
 	c, ok := ctx.(*Context)
 	if !ok {

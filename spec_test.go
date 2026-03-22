@@ -1,12 +1,12 @@
 package liquid
 
-// spec_test.go — Golden tests basados en el spec de Shopify Liquid.
+// spec_test.go — golden tests based on the Shopify Liquid spec.
 //
-// Cada fixture tiene un campo Skip opcional. Cuando está lleno, el test se
-// ejecuta con t.Skip (no se ignora silenciosamente) y documenta la razón
-// de la divergencia intencional con el spec de Ruby Liquid.
+// each fixture has an optional Skip field; when set, the test runs with
+// t.Skip (not silently ignored) to document intentional divergences from
+// the Ruby Liquid spec.
 //
-// Referencia: https://github.com/Shopify/liquid/tree/main/test/integration
+// reference: https://github.com/Shopify/liquid/tree/main/test/integration
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ type specFixture struct {
 	Template string
 	Data     map[string]interface{}
 	Expected string
-	Skip     string // si está lleno, el test se skipea con esta justificación
+	Skip     string // if non-empty, the test is skipped with this justification
 }
 
 func runSpec(t *testing.T, fixtures []specFixture) {
@@ -40,7 +40,7 @@ func runSpec(t *testing.T, fixtures []specFixture) {
 }
 
 // ---------------------------------------------------------------------------
-// Variables de forloop
+// forloop variables
 // ---------------------------------------------------------------------------
 
 func TestSpecForloopVariables(t *testing.T) {
@@ -103,7 +103,7 @@ func TestSpecForloopVariables(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// for tag: limit y offset
+// for tag: limit and offset
 // ---------------------------------------------------------------------------
 
 func TestSpecForLimit(t *testing.T) {
@@ -133,7 +133,7 @@ func TestSpecForLimit(t *testing.T) {
 			Expected: "ab",
 		},
 		{
-			// Ruby Liquid aplica limit/offset primero, luego reversed.
+			// Ruby Liquid applies limit/offset first, then reversed:
 			// limit:2 → ["a","b"], reversed → ["b","a"]
 			Name:     "limit con reversed",
 			Template: `{% for i in items reversed limit:2 %}{{ i }}{% endfor %}`,
@@ -150,7 +150,7 @@ func TestSpecForLimit(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Variables de tablerow
+// tablerow variables
 // ---------------------------------------------------------------------------
 
 func TestSpecTablerowVariables(t *testing.T) {
@@ -201,7 +201,7 @@ func TestSpecTablerowVariables(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Operador contains
+// contains operator
 // ---------------------------------------------------------------------------
 
 func TestSpecContains(t *testing.T) {
@@ -234,7 +234,7 @@ func TestSpecContains(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Valores especiales: blank y empty
+// special values: blank and empty
 // ---------------------------------------------------------------------------
 
 func TestSpecBlankAndEmpty(t *testing.T) {
@@ -279,7 +279,7 @@ func TestSpecBlankAndEmpty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Rangos en for
+// ranges in for
 // ---------------------------------------------------------------------------
 
 func TestSpecRangeFor(t *testing.T) {
@@ -306,7 +306,7 @@ func TestSpecRangeFor(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Filtros: casos del spec
+// filters: spec cases
 // ---------------------------------------------------------------------------
 
 func TestSpecFilters(t *testing.T) {
@@ -392,7 +392,7 @@ func TestSpecFilters(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Nil safety en acceso a propiedades
+// nil safety in property access
 // ---------------------------------------------------------------------------
 
 func TestSpecNilSafety(t *testing.T) {
@@ -472,7 +472,7 @@ func TestSpecTruthinessCompatibility(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Assign y capture
+// assign and capture
 // ---------------------------------------------------------------------------
 
 func TestSpecAssignCapture(t *testing.T) {
@@ -526,11 +526,11 @@ func TestSpecUnless(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Render (no forloop vars en scope aislado)
+// render (forloop vars not in scope for isolated renders)
 // ---------------------------------------------------------------------------
 
 func TestSpecConcatFilter(t *testing.T) {
-	// concat no existe en standard filters — documentar
+	// concat is not a standard filter — it's an extension, not part of the core spec
 	t.Skip("concat filter no está implementado — no es parte del core spec, es una extensión")
-	_ = fmt.Sprintf // evitar import no usado
+	_ = fmt.Sprintf
 }

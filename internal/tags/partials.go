@@ -7,11 +7,9 @@ import (
 	"github.com/go-liquid/internal/engine"
 )
 
-// loadPartialAtParseTime resolves and caches a partial at parse time, using the
-// FileSystem from the Environment instead of a render-time RegisterGet call.
-// Returns nil, nil when no FileSystem is configured (silently skips preloading).
-// Returns an error when the FileSystem is configured but the file is missing or
-// has a parse error — so callers get a parse-time failure instead of a runtime one.
+// loadPartialAtParseTime resolves and caches a partial using the Environment FileSystem.
+// Returns nil, nil when no FileSystem is configured (skips preloading silently).
+// Errors on missing or broken files so callers fail at parse time, not render time.
 func loadPartialAtParseTime(templateName string, parseContext engine.TagParseContext) (*engine.ParsedPartial, error) {
 	cacheKey := templateName + ":" + parseContext.GetErrorMode()
 	if cached, ok := parseContext.GetParsedPartial(cacheKey); ok {
@@ -20,7 +18,7 @@ func loadPartialAtParseTime(templateName string, parseContext engine.TagParseCon
 
 	pc, ok := parseContext.(*engine.ParseContext)
 	if !ok {
-		// Custom TagParseContext — cannot preload, but not a caller error.
+		// custom TagParseContext — cannot preload, but not a caller error
 		return nil, nil
 	}
 	if pc.Environment == nil {
@@ -55,11 +53,8 @@ func loadPartialAtParseTime(templateName string, parseContext engine.TagParseCon
 	return partial, nil
 }
 
-// loadPartial resolves and returns a parsed partial template.
-//
-// Partials are cached in the ParseContext (parse-time cache), so the FileSystem
-// and parser are invoked at most once per unique partial name across all renders
-// of the same template. Subsequent renders hit the in-memory cache directly.
+// loadPartial resolves and returns a parsed partial, cached per unique name so the
+// FileSystem and parser are invoked at most once across all renders
 func loadPartial(templateName string, ctx engine.RenderContext, parseContext engine.TagParseContext) (*engine.ParsedPartial, error) {
 	cacheKey := templateName + ":" + parseContext.GetErrorMode()
 

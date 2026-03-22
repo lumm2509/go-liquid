@@ -29,7 +29,6 @@ func NewInclude(tagName string, markup string, parseContext engine.TagParseConte
 }
 
 // PreloadPartial implements engine.StaticPartialLoader.
-// Only triggers when TemplateName resolved to a string literal at parse time.
 func (i *Include) PreloadPartial(pc engine.TagParseContext) error {
 	name, ok := i.TemplateName.(string)
 	if !ok {

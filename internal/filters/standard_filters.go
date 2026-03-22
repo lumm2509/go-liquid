@@ -231,7 +231,7 @@ func (f StandardFilters) Uniq(input interface{}) []interface{} {
 		val := rv.Index(i).Interface()
 		switch val.(type) {
 		case string, int, int64, float64, bool:
-			// Fast path: tipos comparables y hasheables directamente
+			// fast path: directly comparable and hashable types
 			if _, exists := seen[val]; !exists {
 				seen[val] = struct{}{}
 				result = append(result, val)
@@ -430,12 +430,12 @@ func (f StandardFilters) StripNewlines(input interface{}) string {
 		c := s[i]
 		if c == '\r' {
 			if i+1 < len(s) && s[i+1] == '\n' {
-				i += 2 // saltar \r\n como unidad
+				i += 2 // skip \r\n as a unit
 			} else {
-				i++ // saltar \r solo
+				i++ // skip bare \r
 			}
 		} else if c == '\n' {
-			i++ // saltar \n
+			i++ // skip \n
 		} else {
 			b.WriteByte(c)
 			i++

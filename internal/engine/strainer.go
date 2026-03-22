@@ -106,7 +106,7 @@ func (fr *FilterRegistry) getCombined() map[string]*filterMethod {
 
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
-	if fr.combined != nil { // double-check: otro goroutine puede haber construido mientras esperábamos
+	if fr.combined != nil { // another goroutine may have built while we waited
 		return fr.combined
 	}
 	size := 0
@@ -151,7 +151,6 @@ var callArgsPool = sync.Pool{
 	},
 }
 
-// FilterDispatcher dispatches filter calls for a single render context.
 type FilterDispatcher struct {
 	context   *Context
 	methodMap map[string]*filterMethod
@@ -162,7 +161,7 @@ func NewFilterDispatcher(context *Context) *FilterDispatcher {
 }
 
 func (s *FilterDispatcher) Invoke(method string, args ...interface{}) interface{} {
-	// Fast path: built-in filters via direct dispatch, no reflect
+	// fast path: built-in filters via direct dispatch, no reflect
 	if fn, ok := BuiltinFilters[method]; ok {
 		sp := GetValueSlice()
 		vals := *sp
@@ -232,7 +231,7 @@ func (s *FilterDispatcher) Invoke(method string, args ...interface{}) interface{
 
 		res := fm.fn.Call(callArgs)
 
-		// Zero out entries so pooled slice doesn't hold references, then return to pool.
+		// zero entries before returning to pool — avoid retaining references
 		for i := range callArgs {
 			callArgs[i] = reflect.Value{}
 		}

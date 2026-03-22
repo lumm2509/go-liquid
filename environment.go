@@ -12,7 +12,6 @@ import (
 	"github.com/go-liquid/internal/tags"
 )
 
-// Environment holds all global configuration for a Liquid template engine.
 type Environment struct {
 	ErrorMode             string
 	ExceptionRenderer     ExceptionRenderer
@@ -140,8 +139,6 @@ func (e *Environment) Freeze() {
 	defer e.mu.Unlock()
 	e.frozen = true
 }
-
-// --- EnvironmentIface implementation ---
 
 func (e *Environment) GetExceptionRenderer() engine.ExceptionRenderer {
 	return e.ExceptionRenderer
