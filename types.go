@@ -1,9 +1,9 @@
 package liquid
 
 import (
-	"github.com/go-liquid/internal/engine"
-	"github.com/go-liquid/internal/filters"
-	"github.com/go-liquid/internal/tags"
+	"github.com/lumm2509/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/filters"
+	"github.com/lumm2509/go-liquid/internal/tags"
 )
 
 // types custom tag and filter authors program against; do not import internal/ directly
@@ -22,20 +22,20 @@ type (
 )
 
 // re-exported for API stability; internal/engine cannot be imported externally
-type TagBase      = engine.TagBase
-type StringNode   = engine.StringNode
+type TagBase = engine.TagBase
+type StringNode = engine.StringNode
 type ParsedPartial = engine.ParsedPartial
 
 type I18n = engine.I18n
 
 type FilterRegistry = engine.FilterRegistry
 type FilterDispatcher = engine.FilterDispatcher
-type StandardFilters  = filters.StandardFilters
+type StandardFilters = filters.StandardFilters
 
 // SafeHTML marks a string as already-safe HTML; bypasses auto-escaping
 type SafeHTML = engine.SafeHTML
 
-type DebugEvent     = engine.DebugEvent
+type DebugEvent = engine.DebugEvent
 type DebugEventType = engine.DebugEventType
 
 const (

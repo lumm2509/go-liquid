@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-liquid/internal/engine"
-	"github.com/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/runtime"
 )
 
 // pre-grown to 4 KiB; builders that grew beyond 512 KiB are not returned to avoid retaining large buffers

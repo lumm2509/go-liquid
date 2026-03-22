@@ -3,7 +3,7 @@ package tags
 import (
 	"strings"
 
-	"github.com/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/engine"
 )
 
 type Comment struct {
@@ -31,4 +31,4 @@ func (c *Comment) Parse(tokenizer *engine.Tokenizer) error {
 }
 
 func (c *Comment) RenderToOutputBuffer(_ engine.RenderContext, _ *strings.Builder) error { return nil }
-func (c *Comment) IsBlank() bool                                                          { return true }
+func (c *Comment) IsBlank() bool                                                         { return true }

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/runtime"
 )
 
 var invokeFilterArgsPool = sync.Pool{
@@ -103,10 +103,10 @@ type Context struct {
 	AutoEscape         bool
 	GoCtx              context.Context
 
-	interrupts          []interface{}
-	filterDispatcher    *FilterDispatcher
-	baseScopeDepth      int
-	runtimeExprCache    map[string]interface{} // lazy; caches Get() expression parses
+	interrupts       []interface{}
+	filterDispatcher *FilterDispatcher
+	baseScopeDepth   int
+	runtimeExprCache map[string]interface{} // lazy; caches Get() expression parses
 	// Forloop is set by the for-tag to enable O(1) forloop variable access.
 	// nil outside of a for-loop body.
 	Forloop *ForloopDrop
@@ -123,7 +123,6 @@ type ContextConfig struct {
 	StaticEnvironments []map[string]interface{}
 	Environment        EnvironmentIface
 }
-
 
 func NewContext(cfg ContextConfig) *Context {
 	environments := cfg.Environments
@@ -143,9 +142,9 @@ func NewContext(cfg ContextConfig) *Context {
 		StaticEnvironments: staticEnvironments,
 		Scopes:             newScopeStack(outerScope),
 		Registers:          runtime.NewRegisters(registers),
-		Partial:         false,
-		StrictVariables: false,
-		baseScopeDepth:  0,
+		Partial:            false,
+		StrictVariables:    false,
+		baseScopeDepth:     0,
 	}
 
 	ctx.ResourceLimits = resourceLimits
@@ -188,9 +187,9 @@ func (c *Context) Context() context.Context {
 	return context.Background()
 }
 
-func (c *Context) RegisterGet(key string) interface{} { return c.Registers.Get(key) }
+func (c *Context) RegisterGet(key string) interface{}        { return c.Registers.Get(key) }
 func (c *Context) RegisterSet(key string, value interface{}) { c.Registers.Set(key, value) }
-func (c *Context) IsPartial() bool                          { return c.Partial }
+func (c *Context) IsPartial() bool                           { return c.Partial }
 func (c *Context) SetPartial(partial bool)                   { c.Partial = partial }
 func (c *Context) GetTemplateName() string                   { return c.TemplateName }
 func (c *Context) SetTemplateName(name string)               { c.TemplateName = name }

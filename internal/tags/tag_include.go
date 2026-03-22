@@ -3,7 +3,7 @@ package tags
 import (
 	"strings"
 
-	"github.com/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/engine"
 )
 
 type Include struct {

@@ -3,7 +3,7 @@ package parser_test
 import (
 	"testing"
 
-	"github.com/go-liquid/internal/parser"
+	"github.com/lumm2509/go-liquid/internal/parser"
 )
 
 // --- StringScanner ---

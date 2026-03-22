@@ -3,7 +3,7 @@ package tags
 import (
 	"strings"
 
-	"github.com/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/engine"
 )
 
 type Doc struct {
@@ -31,4 +31,4 @@ func (d *Doc) Parse(tokenizer *engine.Tokenizer) error {
 }
 
 func (d *Doc) RenderToOutputBuffer(_ engine.RenderContext, _ *strings.Builder) error { return nil }
-func (d *Doc) IsBlank() bool                                                          { return true }
+func (d *Doc) IsBlank() bool                                                         { return true }

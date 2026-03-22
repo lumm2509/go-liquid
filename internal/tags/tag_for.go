@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-liquid/internal/engine"
-	"github.com/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/runtime"
 )
 
 // ForloopDrop is defined in internal/engine so Context can hold a direct pointer.

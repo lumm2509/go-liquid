@@ -3,7 +3,7 @@ package engine
 import (
 	"sync"
 
-	"github.com/go-liquid/internal/parser"
+	"github.com/lumm2509/go-liquid/internal/parser"
 )
 
 // ParsedPartial is a partial template resolved and parsed at parse-time.
@@ -30,7 +30,7 @@ type ParseContext struct {
 	expressionCache map[string]interface{}
 	partialOptions  map[string]interface{}
 
-	partialsMu    sync.RWMutex
+	partialsMu     sync.RWMutex
 	parsedPartials map[string]*ParsedPartial
 
 	partialStateMu sync.Mutex // guards Partial, options, ErrorMode in SetPartial
@@ -127,7 +127,7 @@ func (pc *ParseContext) SafeParseExpression(p *Parser) (interface{}, error) {
 	return ParseExpressionSafe(p, pc.stringScanner, pc.expressionCache)
 }
 
-func (pc *ParseContext) LineNo() int    { return pc.LineNumber }
+func (pc *ParseContext) LineNo() int          { return pc.LineNumber }
 func (pc *ParseContext) GetErrorMode() string { return pc.ErrorMode }
 
 // SetPartial switches option scoping for partial rendering

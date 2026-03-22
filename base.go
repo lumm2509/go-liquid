@@ -3,7 +3,7 @@ package liquid
 import (
 	"regexp"
 
-	"github.com/go-liquid/internal/parser"
+	"github.com/lumm2509/go-liquid/internal/parser"
 )
 
 const (
@@ -70,7 +70,6 @@ var (
 
 	VariableParser = regexp.MustCompile(`\[[^\[\]]+\]|` + variableSegment.String() + `+\??`)
 )
-
 
 func NewStringScanner(source string) *StringScanner { return parser.NewStringScanner(source) }
 func NewParser(ss *StringScanner) *Parser           { return parser.NewParser(ss) }

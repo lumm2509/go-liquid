@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/go-liquid/internal/parser"
-	"github.com/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/parser"
+	"github.com/lumm2509/go-liquid/internal/runtime"
 )
 
 // re-exported parser primitives for internal use
@@ -17,8 +17,8 @@ type StringScanner = parser.StringScanner
 type Parser = parser.Parser
 
 func NewStringScanner(source string) *StringScanner { return parser.NewStringScanner(source) }
-func NewParser(ss *StringScanner) *Parser            { return parser.NewParser(ss) }
-func Tokenize(input string) ([]Token, error)         { return parser.Tokenize(input) }
+func NewParser(ss *StringScanner) *Parser           { return parser.NewParser(ss) }
+func Tokenize(input string) ([]Token, error)        { return parser.Tokenize(input) }
 func NewTokenizer(source string, startLine int, forLiquidTag bool) *Tokenizer {
 	return parser.NewTokenizer(source, startLine, forLiquidTag)
 }
@@ -46,11 +46,11 @@ const (
 type DebugEventType string
 
 const (
-	EventFilterNotFound            DebugEventType = "filter.not_found"
-	EventEnvironmentFrozenTag      DebugEventType = "environment.frozen_tag_skipped"
-	EventContextOverflow           DebugEventType = "context.overflow"
-	EventRenderNodeError           DebugEventType = "render.node_error"
-	EventConditionUnknownOperator  DebugEventType = "condition.unknown_operator"
+	EventFilterNotFound           DebugEventType = "filter.not_found"
+	EventEnvironmentFrozenTag     DebugEventType = "environment.frozen_tag_skipped"
+	EventContextOverflow          DebugEventType = "context.overflow"
+	EventRenderNodeError          DebugEventType = "render.node_error"
+	EventConditionUnknownOperator DebugEventType = "condition.unknown_operator"
 )
 
 // DebugEvent is passed to DebugLogger on each internal event.
@@ -168,11 +168,11 @@ func NewTagBase(tagName string, markup string, parseContext TagParseContext) Tag
 	return TagBase{name: tagName, markup: markup, line: line}
 }
 
-func (t TagBase) TagName() string { return t.name }
-func (t TagBase) Raw() string     { return t.markup }
-func (t TagBase) LineNumber() int { return t.line }
-func (t TagBase) IsBlank() bool   { return false }
-func (t TagBase) Parse(_ *Tokenizer) error { return nil }
+func (t TagBase) TagName() string                                                { return t.name }
+func (t TagBase) Raw() string                                                    { return t.markup }
+func (t TagBase) LineNumber() int                                                { return t.line }
+func (t TagBase) IsBlank() bool                                                  { return false }
+func (t TagBase) Parse(_ *Tokenizer) error                                       { return nil }
 func (t TagBase) RenderToOutputBuffer(_ RenderContext, _ *strings.Builder) error { return nil }
 
 // StringNode holds a raw text node.

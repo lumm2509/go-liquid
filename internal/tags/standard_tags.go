@@ -1,6 +1,6 @@
 package tags
 
-import "github.com/go-liquid/internal/engine"
+import "github.com/lumm2509/go-liquid/internal/engine"
 
 // StandardTags is the default set of tags registered in a new Environment.
 var StandardTags = map[string]engine.TagFactory{

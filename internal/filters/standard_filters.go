@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/engine"
 )
 
 var stripHtmlRegex = regexp.MustCompile(`<[^>]*>`)

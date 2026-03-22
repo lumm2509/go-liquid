@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/engine"
 )
 
 var assignSyntax = regexp.MustCompile(`(?s)^([\w\-]+)\s*=\s*(.*)$`)

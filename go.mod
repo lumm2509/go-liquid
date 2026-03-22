@@ -1,4 +1,4 @@
-module github.com/go-liquid
+module github.com/lumm2509/go-liquid
 
 go 1.25.6
 

@@ -3,8 +3,8 @@ package tags
 import (
 	"strings"
 
-	"github.com/go-liquid/internal/engine"
-	"github.com/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/runtime"
 )
 
 type Break struct {

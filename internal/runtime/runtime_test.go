@@ -3,7 +3,7 @@ package runtime_test
 import (
 	"testing"
 
-	"github.com/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/runtime"
 )
 
 // --- Registers ---

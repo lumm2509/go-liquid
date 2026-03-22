@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-liquid/internal/engine"
-	"github.com/go-liquid/internal/filters"
-	"github.com/go-liquid/internal/runtime"
-	"github.com/go-liquid/internal/tags"
+	"github.com/lumm2509/go-liquid/internal/engine"
+	"github.com/lumm2509/go-liquid/internal/filters"
+	"github.com/lumm2509/go-liquid/internal/runtime"
+	"github.com/lumm2509/go-liquid/internal/tags"
 )
 
 type Environment struct {
@@ -19,11 +19,11 @@ type Environment struct {
 	DefaultResourceLimits runtime.ResourceLimitsConfig
 	Logger                DebugLogger // nil = no-op
 
-	tags                       map[string]TagFactory
+	tags                     map[string]TagFactory
 	filterRegistry           *FilterRegistry
 	filterRegistryClassCache map[string]*FilterRegistry
-	mu                         sync.RWMutex
-	frozen                     bool
+	mu                       sync.RWMutex
+	frozen                   bool
 }
 
 func (e *Environment) log(event engine.DebugEventType, data map[string]interface{}) {
@@ -45,10 +45,10 @@ func DefaultEnvironment() *Environment {
 
 func NewEnvironment() *Environment {
 	env := &Environment{
-		ErrorMode:                  "lax",
-		tags:                       make(map[string]TagFactory),
-		ExceptionRenderer:          func(err error) error { return err },
-		FileSystem:                 &BlankFileSystem{},
+		ErrorMode:                "lax",
+		tags:                     make(map[string]TagFactory),
+		ExceptionRenderer:        func(err error) error { return err },
+		FileSystem:               &BlankFileSystem{},
 		filterRegistryClassCache: make(map[string]*FilterRegistry),
 	}
 	for k, v := range tags.StandardTags {
@@ -143,7 +143,7 @@ func (e *Environment) Freeze() {
 func (e *Environment) GetExceptionRenderer() engine.ExceptionRenderer {
 	return e.ExceptionRenderer
 }
-func (e *Environment) GetFileSystem() engine.FileSystem    { return e.FileSystem }
+func (e *Environment) GetFileSystem() engine.FileSystem { return e.FileSystem }
 func (e *Environment) GetDefaultResourceLimits() runtime.ResourceLimitsConfig {
 	return e.DefaultResourceLimits
 }
