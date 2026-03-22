@@ -99,8 +99,8 @@ func (f StandardFilters) Minus(input interface{}, operand interface{}) interface
 }
 
 func (f StandardFilters) Date(input interface{}, format interface{}) interface{} {
-	t := engine.UtilsToDate(input)
-	if t == nil {
+	t, ok := engine.UtilsToDate(input)
+	if !ok {
 		return input
 	}
 	fstr := engine.UtilsToString(format)
@@ -237,10 +237,17 @@ func (f StandardFilters) Uniq(input interface{}) []interface{} {
 				result = append(result, val)
 			}
 		default:
-			// Slow path: tipos no hasheables — serializa a string como key de hash, O(n) total
-			key := fmt.Sprintf("%v", val)
-			if _, exists := seen[key]; !exists {
-				seen[key] = struct{}{}
+			// Slow path: unhashable types (structs, maps, slices).
+			// Linear scan with DeepEqual — avoids fmt.Sprintf alloc per element.
+			// Liquid arrays are typically < 100 elements, so O(n²) is acceptable.
+			duplicate := false
+			for _, s := range result {
+				if reflect.DeepEqual(val, s) {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
 				result = append(result, val)
 			}
 		}
@@ -345,28 +352,34 @@ func (f StandardFilters) Sort(input interface{}, property ...interface{}) []inte
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return []interface{}{}
 	}
-	res := make([]interface{}, rv.Len())
+	n := rv.Len()
+	res := make([]interface{}, n)
 	for i := range res {
 		res[i] = rv.Index(i).Interface()
 	}
 	if len(property) > 0 && property[0] != nil {
 		prop := engine.UtilsToString(property[0])
-		type kv struct{ val, key interface{} }
-		items := make([]kv, len(res))
+		// Pre-compute keys once; sort an index slice to avoid a second full value alloc.
+		keys := make([]interface{}, n)
 		for i, v := range res {
-			items[i] = kv{val: v, key: getProperty(v, prop)}
+			keys[i] = getProperty(v, prop)
 		}
-		sort.SliceStable(items, func(i, j int) bool {
-			return engine.CompareValues(items[i].key, items[j].key) < 0
-		})
-		for i, it := range items {
-			res[i] = it.val
+		indices := make([]int, n)
+		for i := range indices {
+			indices[i] = i
 		}
-	} else {
-		sort.SliceStable(res, func(i, j int) bool {
-			return engine.CompareValues(res[i], res[j]) < 0
+		sort.SliceStable(indices, func(a, b int) bool {
+			return engine.CompareValues(keys[indices[a]], keys[indices[b]]) < 0
 		})
+		sorted := make([]interface{}, n)
+		for i, idx := range indices {
+			sorted[i] = res[idx]
+		}
+		return sorted
 	}
+	sort.SliceStable(res, func(i, j int) bool {
+		return engine.CompareValues(res[i], res[j]) < 0
+	})
 	return res
 }
 
@@ -622,6 +635,15 @@ func toFloat64(val interface{}) float64 {
 	return 0
 }
 
+// valueToString reads a Value as string without going through interface{}.
+// For KindString it returns the payload directly; other kinds fall back to UtilsToString.
+func valueToString(v engine.Value) string {
+	if v.Kind() == engine.KindString {
+		return v.String()
+	}
+	return valueToString(v)
+}
+
 // valueToFloat64 converts a Value to float64 for arithmetic filters.
 func valueToFloat64(v engine.Value) float64 {
 	switch v.Kind() {
@@ -656,13 +678,13 @@ func init() {
 
 	// downcase / upcase / capitalize
 	engine.RegisterBuiltin("downcase", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
-		return engine.ValueString(strings.ToLower(engine.UtilsToString(input.ToInterface())))
+		return engine.ValueString(strings.ToLower(valueToString(input)))
 	})
 	engine.RegisterBuiltin("upcase", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
-		return engine.ValueString(strings.ToUpper(engine.UtilsToString(input.ToInterface())))
+		return engine.ValueString(strings.ToUpper(valueToString(input)))
 	})
 	engine.RegisterBuiltin("capitalize", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
-		s := engine.UtilsToString(input.ToInterface())
+		s := valueToString(input)
 		if len(s) == 0 {
 			return engine.ValueString("")
 		}
@@ -671,13 +693,13 @@ func init() {
 
 	// escape / strip / strip_html
 	engine.RegisterBuiltin("escape", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
-		return engine.ValueObject(engine.SafeHTML(html.EscapeString(engine.UtilsToString(input.ToInterface()))))
+		return engine.ValueObject(engine.SafeHTML(html.EscapeString(valueToString(input))))
 	})
 	engine.RegisterBuiltin("strip", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
-		return engine.ValueString(strings.TrimSpace(engine.UtilsToString(input.ToInterface())))
+		return engine.ValueString(strings.TrimSpace(valueToString(input)))
 	})
 	engine.RegisterBuiltin("strip_html", func(_ *engine.Context, input engine.Value, _ []engine.Value) engine.Value {
-		return engine.ValueString(stripHtmlRegex.ReplaceAllString(engine.UtilsToString(input.ToInterface()), ""))
+		return engine.ValueString(stripHtmlRegex.ReplaceAllString(valueToString(input), ""))
 	})
 
 	// append / prepend
@@ -686,26 +708,26 @@ func init() {
 		if len(args) > 0 {
 			suffix = engine.UtilsToString(args[0].ToInterface())
 		}
-		return engine.ValueString(engine.UtilsToString(input.ToInterface()) + suffix)
+		return engine.ValueString(valueToString(input) + suffix)
 	})
 	engine.RegisterBuiltin("prepend", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
 		prefix := ""
 		if len(args) > 0 {
 			prefix = engine.UtilsToString(args[0].ToInterface())
 		}
-		return engine.ValueString(prefix + engine.UtilsToString(input.ToInterface()))
+		return engine.ValueString(prefix + valueToString(input))
 	})
 
 	// replace / replace_first
 	engine.RegisterBuiltin("replace", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
-		s := engine.UtilsToString(input.ToInterface())
+		s := valueToString(input)
 		if len(args) < 2 {
 			return engine.ValueString(s)
 		}
 		return engine.ValueString(strings.ReplaceAll(s, engine.UtilsToString(args[0].ToInterface()), engine.UtilsToString(args[1].ToInterface())))
 	})
 	engine.RegisterBuiltin("replace_first", func(_ *engine.Context, input engine.Value, args []engine.Value) engine.Value {
-		s := engine.UtilsToString(input.ToInterface())
+		s := valueToString(input)
 		if len(args) < 2 {
 			return engine.ValueString(s)
 		}
@@ -718,7 +740,7 @@ func init() {
 		if len(args) > 0 {
 			delim = engine.UtilsToString(args[0].ToInterface())
 		}
-		return engine.ValueObject(strings.Split(engine.UtilsToString(input.ToInterface()), delim))
+		return engine.ValueObject(strings.Split(valueToString(input), delim))
 	})
 
 	// plus / minus / times / divided_by / modulo

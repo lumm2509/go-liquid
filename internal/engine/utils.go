@@ -147,40 +147,32 @@ func UtilsToNumber(obj interface{}) interface{} {
 	}
 }
 
-func UtilsToDate(obj interface{}) *time.Time {
+func UtilsToDate(obj interface{}) (time.Time, bool) {
 	if t, ok := obj.(time.Time); ok {
-		return &t
+		return t, true
 	}
-	if t, ok := obj.(*time.Time); ok {
-		return t
+	if t, ok := obj.(*time.Time); ok && t != nil {
+		return *t, true
 	}
 	s, ok := obj.(string)
-	if !ok {
-		return nil
-	}
-	if s == "" {
-		return nil
+	if !ok || s == "" {
+		return time.Time{}, false
 	}
 	s = strings.ToLower(s)
 	if s == "now" || s == "today" {
-		t := time.Now()
-		return &t
+		return time.Now(), true
 	}
 	if UnixTimestampRegex.MatchString(s) {
-		i, err := strconv.ParseInt(s, 10, 64)
-		if err == nil {
-			t := time.Unix(i, 0)
-			return &t
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return time.Unix(i, 0), true
 		}
 	}
-	formats := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
-	for _, f := range formats {
-		t, err := time.Parse(f, s)
-		if err == nil {
-			return &t
+	for _, f := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, true
 		}
 	}
-	return nil
+	return time.Time{}, false
 }
 
 func UtilsToString(obj interface{}) string {
