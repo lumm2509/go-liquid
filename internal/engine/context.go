@@ -104,9 +104,10 @@ type Context struct {
 	AutoEscape         bool
 	GoCtx              context.Context
 
-	interrupts       []interface{}
-	filterDispatcher *FilterDispatcher
-	baseScopeDepth   int
+	interrupts          []interface{}
+	filterDispatcher    *FilterDispatcher
+	baseScopeDepth      int
+	runtimeExprCache    map[string]interface{} // lazy; caches Get() expression parses
 }
 
 // ContextConfig holds all parameters for constructing a render Context.
@@ -168,7 +169,13 @@ func NewContext(cfg ContextConfig) *Context {
 // --- RenderContext interface implementation ---
 
 func (c *Context) Get(expression string) interface{} {
-	expr, _ := ParseExpression(expression, NewStringScanner(expression), nil)
+	if c.runtimeExprCache == nil {
+		c.runtimeExprCache = make(map[string]interface{}, 8)
+	}
+	expr, ok := c.runtimeExprCache[expression]
+	if !ok {
+		expr, _ = ParseExpression(expression, NewStringScanner(expression), c.runtimeExprCache)
+	}
 	return c.Evaluate(expr)
 }
 
