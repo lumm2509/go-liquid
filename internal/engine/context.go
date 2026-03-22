@@ -1,18 +1,96 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/go-liquid/internal/runtime"
 )
+
+var invokeFilterArgsPool = sync.Pool{
+	New: func() interface{} {
+		s := make([]interface{}, 0, 8)
+		return &s
+	},
+}
+
+const maxInlineScopes = 8
+
+// ScopeStack is a stack of variable scopes. The first maxInlineScopes entries
+// live in an inline array to avoid heap allocations for common templates.
+type ScopeStack struct {
+	inline [maxInlineScopes]map[string]interface{}
+	depth  int
+	extra  []map[string]interface{} // only used when depth > maxInlineScopes
+}
+
+// newScopeStack returns a ScopeStack pre-loaded with an initial scope.
+func newScopeStack(initial map[string]interface{}) ScopeStack {
+	var s ScopeStack
+	s.inline[0] = initial
+	s.depth = 1
+	return s
+}
+
+func (s *ScopeStack) Push(scope map[string]interface{}) {
+	if s.depth < maxInlineScopes {
+		s.inline[s.depth] = scope
+	} else {
+		s.extra = append(s.extra, scope)
+	}
+	s.depth++
+}
+
+func (s *ScopeStack) Pop() map[string]interface{} {
+	if s.depth == 0 {
+		return nil
+	}
+	s.depth--
+	if s.depth < maxInlineScopes {
+		scope := s.inline[s.depth]
+		s.inline[s.depth] = nil
+		return scope
+	}
+	n := len(s.extra)
+	scope := s.extra[n-1]
+	s.extra = s.extra[:n-1]
+	return scope
+}
+
+func (s *ScopeStack) Top() map[string]interface{} {
+	if s.depth == 0 {
+		return nil
+	}
+	if s.depth <= maxInlineScopes {
+		return s.inline[s.depth-1]
+	}
+	return s.extra[len(s.extra)-1]
+}
+
+func (s *ScopeStack) Bottom() map[string]interface{} {
+	if s.depth == 0 {
+		return nil
+	}
+	return s.inline[0]
+}
+
+func (s *ScopeStack) At(i int) map[string]interface{} {
+	if i < maxInlineScopes {
+		return s.inline[i]
+	}
+	return s.extra[i-maxInlineScopes]
+}
+
+func (s *ScopeStack) Len() int { return s.depth }
 
 // Context is the runtime execution state for a single render.
 type Context struct {
 	Environment        EnvironmentIface
 	Environments       []map[string]interface{}
 	StaticEnvironments []map[string]interface{}
-	Scopes             []map[string]interface{}
+	Scopes             ScopeStack
 	Registers          *runtime.Registers
 	Errors             []error
 	Warnings           []error
@@ -23,42 +101,35 @@ type Context struct {
 	StrictVariables    bool
 	StrictFilters      bool
 	GlobalFilter       func(interface{}) interface{}
+	AutoEscape         bool
+	GoCtx              context.Context
 
-	interrupts     []interface{}
-	filters        []interface{}
-	strainer       *Strainer
-	baseScopeDepth int
+	interrupts       []interface{}
+	filterDispatcher *FilterDispatcher
+	baseScopeDepth   int
 }
 
-func BuildContext(
-	env EnvironmentIface,
-	environments map[string]interface{},
-	outerScope map[string]interface{},
-	registers map[string]interface{},
-	rethrowErrors bool,
-	resourceLimits *runtime.ResourceLimits,
-	staticEnvironments map[string]interface{},
-) *Context {
-	return NewContext(
-		[]map[string]interface{}{environments},
-		outerScope,
-		registers,
-		rethrowErrors,
-		resourceLimits,
-		[]map[string]interface{}{staticEnvironments},
-		env,
-	)
+// ContextConfig holds all parameters for constructing a render Context.
+// Use NewContext(ContextConfig{...}) instead of positional arguments.
+type ContextConfig struct {
+	Environments       []map[string]interface{}
+	OuterScope         map[string]interface{}
+	Registers          map[string]interface{}
+	RethrowErrors      bool
+	ResourceLimits     *runtime.ResourceLimits
+	StaticEnvironments []map[string]interface{}
+	Environment        EnvironmentIface
 }
 
-func NewContext(
-	environments []map[string]interface{},
-	outerScope map[string]interface{},
-	registers map[string]interface{},
-	rethrowErrors bool,
-	resourceLimits *runtime.ResourceLimits,
-	staticEnvironments []map[string]interface{},
-	environment EnvironmentIface,
-) *Context {
+
+func NewContext(cfg ContextConfig) *Context {
+	environments := cfg.Environments
+	outerScope := cfg.OuterScope
+	registers := cfg.Registers
+	rethrowErrors := cfg.RethrowErrors
+	resourceLimits := cfg.ResourceLimits
+	staticEnvironments := cfg.StaticEnvironments
+	environment := cfg.Environment
 	if outerScope == nil {
 		outerScope = make(map[string]interface{})
 	}
@@ -67,15 +138,14 @@ func NewContext(
 		Environment:        environment,
 		Environments:       environments,
 		StaticEnvironments: staticEnvironments,
-		Scopes:             []map[string]interface{}{outerScope},
+		Scopes:             newScopeStack(outerScope),
 		Registers:          runtime.NewRegisters(registers),
 		Errors:             []error{},
 		Warnings:           []error{},
 		Partial:            false,
 		StrictVariables:    false,
-		baseScopeDepth:     0,
-		interrupts:         []interface{}{},
-		filters:            []interface{}{},
+		baseScopeDepth: 0,
+		interrupts:     []interface{}{},
 	}
 
 	ctx.ResourceLimits = resourceLimits
@@ -103,7 +173,16 @@ func (c *Context) Get(expression string) interface{} {
 }
 
 func (c *Context) Set(key string, value interface{}) {
-	c.Scopes[0][key] = value
+	c.Scopes.Top()[key] = value
+}
+
+// Context returns the Go context associated with this render, or
+// context.Background() if none was set via RenderWithContext.
+func (c *Context) Context() context.Context {
+	if c.GoCtx != nil {
+		return c.GoCtx
+	}
+	return context.Background()
 }
 
 func (c *Context) RegisterGet(key string) interface{} { return c.Registers.Get(key) }
@@ -113,16 +192,21 @@ func (c *Context) SetPartial(partial bool)                   { c.Partial = parti
 func (c *Context) GetTemplateName() string                   { return c.TemplateName }
 func (c *Context) SetTemplateName(name string)               { c.TemplateName = name }
 
-func (c *Context) Strainer() *Strainer {
-	if c.strainer == nil {
-		c.strainer = c.Environment.CreateStrainer(c, c.filters)
+func (c *Context) FilterDispatcher() *FilterDispatcher {
+	if c.filterDispatcher == nil {
+		c.filterDispatcher = c.Environment.CreateFilterDispatcher(c, nil)
 	}
-	return c.strainer
+	return c.filterDispatcher
 }
 
 func (c *Context) InvokeFilter(method string, obj interface{}, args ...interface{}) interface{} {
-	allArgs := append([]interface{}{obj}, args...)
-	return c.Strainer().Invoke(method, allArgs...)
+	pooled := invokeFilterArgsPool.Get().(*[]interface{})
+	allArgs := append((*pooled)[:0], obj)
+	allArgs = append(allArgs, args...)
+	result := c.FilterDispatcher().Invoke(method, allArgs...)
+	*pooled = allArgs[:0]
+	invokeFilterArgsPool.Put(pooled)
+	return result
 }
 
 func (c *Context) invoke(method string, obj interface{}, args ...interface{}) interface{} {
@@ -147,7 +231,8 @@ func (c *Context) FindVariable(key string, raiseOnNotFound bool) interface{} {
 	var variable interface{}
 	found := false
 
-	for _, scope := range c.Scopes {
+	for i := c.Scopes.Len() - 1; i >= 0; i-- {
+		scope := c.Scopes.At(i)
 		if _, ok := scope[key]; ok {
 			val, err := c.lookupAndEvaluate(scope, key, raiseOnNotFound)
 			if err != nil {
@@ -178,6 +263,15 @@ func (c *Context) lookupAndEvaluate(obj map[string]interface{}, key string, rais
 	value, exists := obj[key]
 	if c.StrictVariables && raiseOnNotFound && !exists {
 		return nil, fmt.Errorf("undefined variable %s", key)
+	}
+	if value == nil {
+		return nil, nil
+	}
+
+	// Fast path: tipos primitivos comunes nunca son funciones — evita reflect.
+	switch value.(type) {
+	case string, int, int64, float64, bool, []interface{}, map[string]interface{}:
+		return value, nil
 	}
 
 	rv := reflect.ValueOf(value)
@@ -217,43 +311,45 @@ func (c *Context) PopInterrupt() interface{} {
 	return i
 }
 
-func (c *Context) Push(newScope map[string]interface{}) {
+func (c *Context) Push(newScope map[string]interface{}) error {
 	if newScope == nil {
 		newScope = make(map[string]interface{})
 	}
-	c.Scopes = append([]map[string]interface{}{newScope}, c.Scopes...)
-	c.checkOverflow()
+	c.Scopes.Push(newScope)
+	return c.checkOverflow()
 }
 
 func (c *Context) Pop() (map[string]interface{}, error) {
-	if len(c.Scopes) <= 1 {
+	if c.Scopes.Len() <= 1 {
 		return nil, fmt.Errorf("ContextError: stack underflow")
 	}
-	popped := c.Scopes[0]
-	c.Scopes = c.Scopes[1:]
+	popped := c.Scopes.Pop()
 	return popped, nil
 }
 
 func (c *Context) Stack(newScope map[string]interface{}, block func() error) error {
-	c.Push(newScope)
+	if err := c.Push(newScope); err != nil {
+		return err
+	}
 	defer c.Pop()
 	return block()
 }
 
 func (c *Context) NewIsolatedSubcontext() RenderContext {
 	c.checkOverflow()
-	sub := NewContext(
-		c.Environments,
-		make(map[string]interface{}),
-		c.Registers.Static(),
-		false,
-		c.ResourceLimits,
-		c.StaticEnvironments,
-		c.Environment,
-	)
+	sub := NewContext(ContextConfig{
+		Environments:       c.Environments,
+		OuterScope:         make(map[string]interface{}),
+		Registers:          c.Registers.Static(),
+		RethrowErrors:      false,
+		ResourceLimits:     c.ResourceLimits,
+		StaticEnvironments: c.StaticEnvironments,
+		Environment:        c.Environment,
+	})
 	sub.baseScopeDepth = c.baseScopeDepth + 1
 	sub.ExceptionRenderer = c.ExceptionRenderer
-	sub.filters = c.filters
+	sub.GoCtx = c.GoCtx
+	sub.filterDispatcher = nil
 	sub.Errors = make([]error, 0)
 	sub.Warnings = make([]error, 0)
 	return sub
@@ -271,45 +367,44 @@ func (c *Context) toLiquid(obj interface{}) interface{} {
 		return nil
 	}
 	if l, ok := obj.(interface{ ToLiquid() interface{} }); ok {
-		res := l.ToLiquid()
-		if d, ok := res.(interface{ SetContext(*Context) }); ok {
-			d.SetContext(c)
-		}
-		return res
+		return l.ToLiquid()
 	}
 	return obj
 }
 
-func (c *Context) checkOverflow() {
-	if c.baseScopeDepth+len(c.Scopes) > 100 {
+func (c *Context) checkOverflow() error {
+	if c.baseScopeDepth+c.Scopes.Len() > 100 {
 		if c.Environment != nil {
 			if logger := c.Environment.GetLogger(); logger != nil {
 				logger.Log(DebugEvent{
-					Event: "context.overflow",
-					Data:  map[string]interface{}{"depth": c.baseScopeDepth + len(c.Scopes)},
+					Event: EventContextOverflow,
+					Data:  map[string]interface{}{"depth": c.baseScopeDepth + c.Scopes.Len()},
 				})
 			}
 		}
-		c.HandleError(fmt.Errorf("StackLevelError: Nesting too deep"), 0)
+		err := fmt.Errorf("StackLevelError: Nesting too deep")
+		c.HandleError(err, 0)
+		return err
 	}
+	return nil
 }
 
 func (c *Context) tryVariableFindInEnvironments(key string, raiseOnNotFound bool) (interface{}, bool, error) {
 	for _, env := range c.Environments {
-		val, err := c.lookupAndEvaluate(env, key, raiseOnNotFound)
-		if err != nil {
-			return nil, false, err
-		}
-		if val != nil {
+		if _, exists := env[key]; exists {
+			val, err := c.lookupAndEvaluate(env, key, raiseOnNotFound)
+			if err != nil {
+				return nil, false, err
+			}
 			return val, true, nil
 		}
 	}
 	for _, env := range c.StaticEnvironments {
-		val, err := c.lookupAndEvaluate(env, key, raiseOnNotFound)
-		if err != nil {
-			return nil, false, err
-		}
-		if val != nil {
+		if _, exists := env[key]; exists {
+			val, err := c.lookupAndEvaluate(env, key, raiseOnNotFound)
+			if err != nil {
+				return nil, false, err
+			}
 			return val, true, nil
 		}
 	}
@@ -317,7 +412,7 @@ func (c *Context) tryVariableFindInEnvironments(key string, raiseOnNotFound bool
 }
 
 func (c *Context) squashInstanceAssignsWithEnvironments() {
-	lastScope := c.Scopes[len(c.Scopes)-1]
+	lastScope := c.Scopes.Bottom()
 	for k := range lastScope {
 		for _, env := range c.Environments {
 			if _, ok := env[k]; ok {
