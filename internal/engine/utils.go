@@ -190,6 +190,17 @@ func UtilsToString(obj interface{}) string {
 	switch v := obj.(type) {
 	case string:
 		return v
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
 	case fmt.Stringer:
 		return v.String()
 	default:
