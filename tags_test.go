@@ -202,6 +202,25 @@ func TestInlineCommentTag(t *testing.T) {
 	require.Equal(t, "hello", mustRender(t, `{% # comment %}hello`, nil))
 }
 
+// --- contains operator (A4) ---
+
+func TestContainsMixedTypeSlice(t *testing.T) {
+	// Slice of mixed types — DeepEqual must not be called when elem and right
+	// have different types (guaranteed miss, wastes cycles).
+	data := map[string]interface{}{
+		"nums":  []interface{}{1, 2, 3},
+		"strs":  []interface{}{"a", "b", "c"},
+		"mixed": []interface{}{1, "two", true, 3.0},
+	}
+	require.Equal(t, "yes", mustRender(t, `{% if nums contains 2 %}yes{% endif %}`, data))
+	require.Equal(t, "", mustRender(t, `{% if nums contains "2" %}yes{% endif %}`, data))
+	require.Equal(t, "yes", mustRender(t, `{% if strs contains "b" %}yes{% endif %}`, data))
+	require.Equal(t, "", mustRender(t, `{% if strs contains 2 %}yes{% endif %}`, data))
+	require.Equal(t, "yes", mustRender(t, `{% if mixed contains "two" %}yes{% endif %}`, data))
+	require.Equal(t, "yes", mustRender(t, `{% if mixed contains 1 %}yes{% endif %}`, data))
+	require.Equal(t, "", mustRender(t, `{% if mixed contains "1" %}yes{% endif %}`, data))
+}
+
 // --- include / partial loading ---
 
 func TestIncludeWithMissingTemplate(t *testing.T) {

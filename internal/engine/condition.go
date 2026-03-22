@@ -64,12 +64,14 @@ func evalContains(left, right interface{}) bool {
 	}
 	rv := reflect.ValueOf(left)
 	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		rightType := reflect.TypeOf(right)
 		for i := 0; i < rv.Len(); i++ {
 			elem := rv.Index(i).Interface()
 			if elem == right {
 				return true
 			}
-			if reflect.DeepEqual(elem, right) {
+			// Only call DeepEqual when types match — a type mismatch is a guaranteed miss.
+			if reflect.TypeOf(elem) == rightType && reflect.DeepEqual(elem, right) {
 				return true
 			}
 		}
