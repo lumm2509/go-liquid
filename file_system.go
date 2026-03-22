@@ -7,10 +7,7 @@ import (
 	"strings"
 )
 
-type FileSystem interface {
-	ReadTemplateFile(templatePath string) (string, error)
-}
-
+// BlankFileSystem is a FileSystem that disallows all template inclusion.
 type BlankFileSystem struct{}
 
 func (f *BlankFileSystem) ReadTemplateFile(templatePath string) (string, error) {
