@@ -71,63 +71,71 @@ func toPascalCase(s string) string {
 	return strings.Join(parts, "")
 }
 
-// StrainerTemplate holds the filter configuration for an environment.
-type StrainerTemplate struct {
+// FilterRegistry holds the filter configuration for an environment.
+// It is built once per Environment and shared across all renders.
+type FilterRegistry struct {
 	Filters    []interface{}
 	filterMaps []map[string]*filterMethod
 
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	combined map[string]*filterMethod
 }
 
-func NewStrainerTemplate() *StrainerTemplate {
-	return &StrainerTemplate{
+func NewFilterRegistry() *FilterRegistry {
+	return &FilterRegistry{
 		Filters:    []interface{}{},
 		filterMaps: []map[string]*filterMethod{},
 	}
 }
 
-func (st *StrainerTemplate) AddFilter(filter interface{}) {
-	st.Filters = append(st.Filters, filter)
-	st.filterMaps = append(st.filterMaps, buildMethodMapForFilter(filter))
-	st.mu.Lock()
-	st.combined = nil
-	st.mu.Unlock()
+func (fr *FilterRegistry) AddFilter(filter interface{}) {
+	fr.Filters = append(fr.Filters, filter)
+	fr.filterMaps = append(fr.filterMaps, buildMethodMapForFilter(filter))
+	fr.mu.Lock()
+	fr.combined = nil
+	fr.mu.Unlock()
 }
 
-func (st *StrainerTemplate) getCombined() map[string]*filterMethod {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	if st.combined != nil {
-		return st.combined
+func (fr *FilterRegistry) getCombined() map[string]*filterMethod {
+	fr.mu.RLock()
+	c := fr.combined
+	fr.mu.RUnlock()
+	if c != nil {
+		return c
+	}
+
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	if fr.combined != nil { // double-check: otro goroutine puede haber construido mientras esperábamos
+		return fr.combined
 	}
 	size := 0
-	for _, m := range st.filterMaps {
+	for _, m := range fr.filterMaps {
 		size += len(m)
 	}
 	combined := make(map[string]*filterMethod, size)
-	for _, m := range st.filterMaps {
+	for _, m := range fr.filterMaps {
 		for k, v := range m {
 			combined[k] = v
 		}
 	}
-	st.combined = combined
+	fr.combined = combined
 	return combined
 }
 
-func (st *StrainerTemplate) NewStrainer(context *Context) *Strainer {
-	return &Strainer{context: context, methodMap: st.getCombined()}
+func (fr *FilterRegistry) NewFilterDispatcher(context *Context) *FilterDispatcher {
+	return &FilterDispatcher{context: context, methodMap: fr.getCombined()}
 }
 
-func (st *StrainerTemplate) Clone() *StrainerTemplate {
-	newSt := NewStrainerTemplate()
-	newSt.Filters = append(newSt.Filters, st.Filters...)
-	newSt.filterMaps = append(newSt.filterMaps, st.filterMaps...)
-	return newSt
+func (fr *FilterRegistry) Clone() *FilterRegistry {
+	newFr := NewFilterRegistry()
+	newFr.Filters = append(newFr.Filters, fr.Filters...)
+	newFr.filterMaps = append(newFr.filterMaps, fr.filterMaps...)
+	return newFr
 }
 
-func (st *StrainerTemplate) FilterMethodNames() []string {
-	m := st.getCombined()
+func (fr *FilterRegistry) FilterMethodNames() []string {
+	m := fr.getCombined()
 	names := make([]string, 0, len(m))
 	for k := range m {
 		names = append(names, k)
@@ -135,17 +143,44 @@ func (st *StrainerTemplate) FilterMethodNames() []string {
 	return names
 }
 
-// Strainer dispatches filter calls for a single render context.
-type Strainer struct {
+// callArgsPool reuses []reflect.Value slices across filter invocations to reduce heap pressure.
+var callArgsPool = sync.Pool{
+	New: func() interface{} {
+		s := make([]reflect.Value, 0, 8)
+		return &s
+	},
+}
+
+// FilterDispatcher dispatches filter calls for a single render context.
+type FilterDispatcher struct {
 	context   *Context
 	methodMap map[string]*filterMethod
 }
 
-func NewStrainer(context *Context) *Strainer {
-	return &Strainer{context: context, methodMap: make(map[string]*filterMethod)}
+func NewFilterDispatcher(context *Context) *FilterDispatcher {
+	return &FilterDispatcher{context: context, methodMap: make(map[string]*filterMethod)}
 }
 
-func (s *Strainer) Invoke(method string, args ...interface{}) interface{} {
+func (s *FilterDispatcher) Invoke(method string, args ...interface{}) interface{} {
+	// Fast path: built-in filters via direct dispatch, no reflect
+	if fn, ok := BuiltinFilters[method]; ok {
+		sp := GetValueSlice()
+		vals := *sp
+		for _, a := range args {
+			vals = append(vals, ValueFrom(a))
+		}
+		var input Value
+		var filterArgs []Value
+		if len(vals) > 0 {
+			input = vals[0]
+			filterArgs = vals[1:]
+		}
+		result := fn(s.context, input, filterArgs).ToInterface()
+		*sp = vals[:0]
+		PutValueSlice(sp)
+		return result
+	}
+
 	fm, ok := s.methodMap[method]
 	if !ok {
 		fm, ok = s.methodMap[toPascalCase(method)]
@@ -164,7 +199,13 @@ func (s *Strainer) Invoke(method string, args ...interface{}) interface{} {
 			}
 		}
 
-		callArgs := make([]reflect.Value, targetNumArgs)
+		sp := callArgsPool.Get().(*[]reflect.Value)
+		var callArgs []reflect.Value
+		if cap(*sp) >= targetNumArgs {
+			callArgs = (*sp)[:targetNumArgs]
+		} else {
+			callArgs = make([]reflect.Value, targetNumArgs)
+		}
 		for i := 0; i < targetNumArgs; i++ {
 			var targetType reflect.Type
 			if isVariadic && i >= numIn-1 {
@@ -190,6 +231,14 @@ func (s *Strainer) Invoke(method string, args ...interface{}) interface{} {
 		}
 
 		res := fm.fn.Call(callArgs)
+
+		// Zero out entries so pooled slice doesn't hold references, then return to pool.
+		for i := range callArgs {
+			callArgs[i] = reflect.Value{}
+		}
+		*sp = callArgs[:0]
+		callArgsPool.Put(sp)
+
 		if len(res) > 0 {
 			return res[0].Interface()
 		}
@@ -204,7 +253,7 @@ func (s *Strainer) Invoke(method string, args ...interface{}) interface{} {
 		if env != nil {
 			if logger := env.GetLogger(); logger != nil {
 				logger.Log(DebugEvent{
-					Event: "filter.not_found",
+					Event: EventFilterNotFound,
 					Data:  map[string]interface{}{"filter": method},
 				})
 			}
