@@ -2,7 +2,6 @@ package engine
 
 import (
 	"fmt"
-	"html"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -277,7 +276,7 @@ func renderObjToOutput(obj interface{}, output *strings.Builder, autoEscape bool
 		return
 	case string:
 		if autoEscape {
-			output.WriteString(html.EscapeString(val))
+			writeHTMLEscaped(output, val)
 		} else {
 			output.WriteString(val)
 		}
@@ -303,7 +302,7 @@ func renderObjToOutput(obj interface{}, output *strings.Builder, autoEscape bool
 	obj = ToLiquidValue(obj)
 	if s, ok := obj.(string); ok {
 		if autoEscape {
-			output.WriteString(html.EscapeString(s))
+			writeHTMLEscaped(output, s)
 		} else {
 			output.WriteString(s)
 		}
@@ -323,3 +322,31 @@ func renderObjToOutput(obj interface{}, output *strings.Builder, autoEscape bool
 
 func (v *Variable) IsBlank() bool   { return false }
 func (v *Variable) LineNumber() int { return v.lineNumber }
+
+// writeHTMLEscaped writes s to b with HTML escaping, without allocating an
+// intermediate string. It writes the runs between special characters as
+// zero-copy sub-slices of s (the compiler optimises WriteString(s[i:j])).
+func writeHTMLEscaped(b *strings.Builder, s string) {
+	last := 0
+	for i := 0; i < len(s); i++ {
+		var esc string
+		switch s[i] {
+		case '"':
+			esc = "&#34;"
+		case '\'':
+			esc = "&#39;"
+		case '&':
+			esc = "&amp;"
+		case '<':
+			esc = "&lt;"
+		case '>':
+			esc = "&gt;"
+		default:
+			continue
+		}
+		b.WriteString(s[last:i])
+		b.WriteString(esc)
+		last = i + 1
+	}
+	b.WriteString(s[last:])
+}
