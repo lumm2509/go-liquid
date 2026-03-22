@@ -4,7 +4,40 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 )
+
+// structFieldCache maps reflect.Type → map[string]int (field name → field index).
+// Built lazily on first access to a struct type; shared across all renders.
+var structFieldCache sync.Map
+
+// cachedFieldIndex returns the index of the exported field with the given name
+// (or its lowercase-first alias) in struct type rt.
+// The map is built once per type and stored in structFieldCache.
+func cachedFieldIndex(rt reflect.Type, name string) (int, bool) {
+	if v, ok := structFieldCache.Load(rt); ok {
+		idx, found := v.(map[string]int)[name]
+		return idx, found
+	}
+	m := make(map[string]int, rt.NumField()*2)
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		m[f.Name] = i
+		// Liquid templates use lowercase keys; store alias so "index" finds "Index".
+		if len(f.Name) > 0 {
+			lower := strings.ToLower(f.Name[:1]) + f.Name[1:]
+			if lower != f.Name {
+				m[lower] = i
+			}
+		}
+	}
+	structFieldCache.Store(rt, m)
+	idx, found := m[name]
+	return idx, found
+}
 
 type VariableLookup struct {
 	Name         interface{}
@@ -99,7 +132,14 @@ func (vl *VariableLookup) Evaluate(ctx *Context) interface{} {
 		return nil
 	}
 
-	obj := ctx.FindVariable(nameStr, true)
+	// D8: forloop fast path — bypasses the scope scan entirely.
+	// ctx.Forloop is non-nil exactly while the for-tag body is executing.
+	var obj interface{}
+	if nameStr == "forloop" && ctx.Forloop != nil {
+		obj = ctx.Forloop
+	} else {
+		obj = ctx.FindVariable(nameStr, true)
+	}
 
 	for i, lookupExpr := range vl.Lookups {
 		key := ctx.Evaluate(lookupExpr)
@@ -196,15 +236,12 @@ func (vl *VariableLookup) accessProperty(ctx *Context, obj interface{}, key inte
 
 	if rv.Kind() == reflect.Struct {
 		if keyStr, ok := key.(string); ok {
-			field := rv.FieldByName(keyStr)
-			// Liquid uses lowercase keys; Go exported fields are capitalized.
-			// Fall back to capitalized lookup for structs exposed to templates.
-			if !field.IsValid() && len(keyStr) > 0 {
-				capitalized := strings.ToUpper(keyStr[:1]) + keyStr[1:]
-				field = rv.FieldByName(capitalized)
-			}
-			if field.IsValid() && field.CanInterface() {
-				return field.Interface()
+			// D2: O(1) field lookup via cached index map instead of linear FieldByName scan.
+			if idx, found := cachedFieldIndex(rv.Type(), keyStr); found {
+				field := rv.Field(idx)
+				if field.CanInterface() {
+					return field.Interface()
+				}
 			}
 			method := rv.MethodByName(keyStr)
 			if method.IsValid() && method.Kind() == reflect.Func {
