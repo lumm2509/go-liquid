@@ -354,8 +354,7 @@ func (c *Context) NewIsolatedSubcontext() RenderContext {
 	sub.ExceptionRenderer = c.ExceptionRenderer
 	sub.GoCtx = c.GoCtx
 	sub.filterDispatcher = nil
-	sub.Errors = make([]error, 0)
-	sub.Warnings = make([]error, 0)
+	// Errors/Warnings/interrupts start nil — append/len are nil-safe in Go.
 	return sub
 }
 
