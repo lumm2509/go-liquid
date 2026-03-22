@@ -205,22 +205,20 @@ func TestInlineCommentTag(t *testing.T) {
 // --- include / partial loading ---
 
 func TestIncludeWithMissingTemplate(t *testing.T) {
-	// BlankFileSystem (default) returns a descriptive error — must NOT panic.
-	tmpl, err := Parse(`{% include 'nonexistent' %}`, nil)
-	require.NoError(t, err)
-	_, err = tmpl.Render(nil, nil)
+	// With eager partial loading (8.C), a FileSystem that rejects includes
+	// now causes Parse to fail — not the first Render call.
+	_, err := Parse(`{% include 'nonexistent' %}`, nil)
 	require.Error(t, err, "expected error when template file is not found")
 	require.NotContains(t, err.Error(), "interface conversion", "error must be descriptive, not a runtime panic message")
 }
 
 func TestIncludeWithNoFileSystem(t *testing.T) {
-	// env.FileSystem = nil triggers the "no file system configured" error path.
+	// With C5, env.FileSystem = nil now triggers a parse-time error instead of
+	// a silent skip followed by a render-time failure.
 	env := NewEnvironment()
 	env.FileSystem = nil
 
-	tmpl, err := ParseWithEnv(`{% include 'partial' %}`, env, nil)
-	require.NoError(t, err)
-	_, err = tmpl.Render(nil, nil)
+	_, err := ParseWithEnv(`{% include 'partial' %}`, env, nil)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no file system configured", "error must identify the missing FileSystem configuration")
+	require.Contains(t, err.Error(), "FileSystem", "error must identify the missing FileSystem configuration")
 }
