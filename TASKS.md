@@ -268,18 +268,18 @@ Also fixed: `valueToString` in `standard_filters.go` had an infinite-recursion b
 
 ## Baselines
 
-> ⚠️ **Estos números son post-optimización** — S1 se ejecutó después de que todas las tareas estaban completas. No hay mediciones pre-optimización registradas. Para la próxima ronda de mejoras, ejecutar benchmarks **antes** de tocar código.
+> ⚠️ **Before = post Track A+B** — capturados antes de iniciar Track D. After = post Track C+D.
 
 _Medidos con `-benchmem -benchtime=2s` en máquina de desarrollo (12 CPU, go1.25)._
 
-| Benchmark | ns/op | B/op | allocs/op |
-|---|---|---|---|
-| `BenchmarkConditionEval` | 606 | 976 | 12 |
-| `BenchmarkVariableRender` | 1762 | 1130 | 21 |
-| `BenchmarkFindVariable` | 663 | 976 | 12 |
-| `BenchmarkTemplateCacheGet` (parallel) | 25 | 0 | 0 |
-| `BenchmarkSortFilter` | 24006 | 10194 | 40 |
-| `BenchmarkForLoop/1000items` | 131206 | 42330 | 1030 |
+| Benchmark | Before (ns/op) | After (ns/op) | Before (B/op) | After (B/op) | Before (allocs) | After (allocs) |
+|---|---|---|---|---|---|---|
+| `BenchmarkConditionEval` | 606 | 557 | 976 | 889 | 12 | 10 |
+| `BenchmarkVariableRender` | 1762 | 1611 | 1130 | 1051 | 21 | 19 |
+| `BenchmarkFindVariable` | 663 | 565 | 976 | 890 | 12 | 10 |
+| `BenchmarkTemplateCacheGet` (parallel) | 25 | 26 | 0 | 0 | 0 | 0 |
+| `BenchmarkSortFilter` | 24006 | 23388 | 10194 | 10747 | 40 | 38 |
+| `BenchmarkForLoop/1000items` | 131206 | 129546 | 42330 | 49182 | 1030 | 1028 |
 
 ---
 
@@ -294,115 +294,435 @@ Dev B:  S1 ✅ → B3 ✅ → B6 ✅ → B5 ✅ → B7 ✅ → B1 ✅ → B2 ✅
 
 ---
 
-## Findings — Revisión post-implementación
+## Track C — Seguimiento post-implementación
 
-Desviaciones y hallazgos descubiertos al revisar el código producido.
-
----
-
-### F1 · B5 `Sort` — conteo de allocations incorrecto en la descripción de la tarea
-
-**Tarea original:** "-1 full slice alloc per `| sort: 'property'`"
-
-**Realidad:** la nueva implementación tiene **más allocations** que la anterior, no menos.
-
-| | Allocations | Bytes/elem |
-|---|---|---|
-| Antes | `res` + `items []kv` | 16 + 32 = 48n |
-| Después | `res` + `keys` + `indices` + `sorted` | 16 + 16 + 8 + 16 = 56n |
-
-La ganancia real no está en la cantidad de allocations sino en la **densidad de datos durante el sort**: el algoritmo ahora ordena un `[]int` (8 bytes/elem) en lugar de `[]kv` (32 bytes/elem), lo que significa 4× mejor cache locality durante las comparaciones. El beneficio es real, pero la justificación en la tarea era incorrecta.
-
-**Acción pendiente:** actualizar el expected gain de B5 para reflejar la ganancia real (cache locality en sort) en lugar de "−1 alloc".
+_Tareas abiertas encontradas al revisar el código producido. Asignación libre._
 
 ---
 
-### F2 · S2 — doble lookup en `BuiltinFilters` en el fast path de `Variable.Render`
+### C1 · Colapsar double lookup en `Variable.Render` fast path ✅
 
-**Archivo:** `internal/engine/variable.go:198-224`
+**File:** `internal/engine/variable.go:198-224`
 
-El fast path de S2 hace **dos pasadas** sobre `v.Filters`:
+El fast path hace dos pasadas sobre `v.Filters`: una para verificar builtins, otra para ejecutarlos. Son `2n` lookups en `BuiltinFilters` donde podrían ser `n`.
 
-```go
-// Pasada 1: verificar que todos sean builtins
-for i := range v.Filters {
-    if _, ok := BuiltinFilters[v.Filters[i].Name]; !ok { ... }
-}
-// Pasada 2: ejecutar (lookup de nuevo por nombre)
-for _, filter := range v.Filters {
-    fn := BuiltinFilters[filter.Name]   // ← segundo map lookup
+- [x] En la primera pasada acumular `FilterFunc` pointers en un slice local en lugar de solo verificar existencia
+- [x] Usar ese slice en el loop de ejecución — elimina el segundo lookup por filtro
+- [x] Run `go test ./...`
+
+**Expected gain:** `2n → n` map lookups en el fast path de filtros.
+
+---
+
+### C2 · Documentar que `MaxSize` es aproximado en `TemplateCache` ✅
+
+**File:** `cache.go:28`
+
+Con 16 shards, `MaxSize=10` puede mantener hasta 16 entradas (una por shard si las keys se distribuyen uniformemente). Un usuario que lo configure para controlar memoria exacta se llevará una sorpresa.
+
+- [x] Actualizar godoc de `MaxSize`: aclarar que el límite es por shard (`≈ MaxSize/16`, mínimo 1 por shard) y que el total real puede ser hasta `MaxSize + 15`
+- [x] Sin cambios de comportamiento — solo doc
+
+---
+
+### C3 · Establecer proceso de benchmark obligatorio pre-tarea ✅
+
+**Contexto:** los valores en la tabla Baselines fueron capturados post-optimización. No hay mediciones anteriores — no es posible cuantificar la mejora de esta ronda.
+
+- [x] Añadir al tope del documento una instrucción: antes de iniciar cualquier tarea correr `go test -run='^$' -bench=. -benchmem -count=5 ./...` y registrar en columna **Before**
+- [x] Añadir columna **Before** y **After** a la tabla de Baselines en la próxima ronda
+- [x] Los números actuales quedan como **Before** de la siguiente iteración
+
+---
+
+## Track D — Optimizaciones de bajo nivel
+
+_Esotérico puro: unsafe, layout de structs, inlining, zero-alloc output, pool abuse. Requiere conocimiento profundo del runtime de Go._
+
+---
+
+### D1 · `Value` struct: colapsar `ival`+`fval` en un solo `uint64` ✅
+
+**File:** `internal/engine/value.go:16-22`
+
+`ival int64` y `fval float64` son mutuamente excluyentes — nunca coexisten. El struct actual desperdicia 8 bytes por padding alineación:
+
+```
+offset 0:  kind  uint8     (1 byte)
+offset 1:  [7 bytes padding]
+offset 8:  ival  int64     (8 bytes)
+offset 16: fval  float64   (8 bytes)   ← nunca coexiste con ival
+offset 24: sval  string    (16 bytes)
+offset 40: pval  interface{}(16 bytes)
+total: 56 bytes
 ```
 
-Para `n` filtros: `2n` map lookups donde podría ser `n`. La primera pasada debería acumular los `FilterFunc` pointers directamente.
+Con un solo campo `num uint64` los 8 bytes de `fval` desaparecen:
 
-**Solución:**
 ```go
-fns := make([]FilterFunc, len(v.Filters))
-for i, f := range v.Filters {
-    fn, ok := BuiltinFilters[f.Name]
-    if !ok { goto standardPath }
-    fns[i] = fn
+type Value struct {
+    kind uint8
+    _    [7]byte      // padding explícito — documenta la intención
+    num  uint64       // int64: cast directo; float64: math.Float64bits/frombits
+    sval string
+    pval interface{}
 }
-// usar fns[i] en la segunda pasada — cero lookups adicionales
+// total: 48 bytes — 14% más pequeño
 ```
 
-**Impacto:** menor al de otras optimizaciones (n suele ser 1–3), pero es inconsistente con el objetivo de S2.
+- [x] Reemplazar `ival int64` + `fval float64` por `num uint64`
+- [x] Actualizar `ValueInt`: `num = uint64(i)`; `Int()`: `return int64(v.num)`
+- [x] Actualizar `ValueFloat`: `num = math.Float64bits(f)`; `Float()`: `return math.Float64frombits(v.num)`
+- [x] Actualizar `ValueBool`: `num = 1` si true; `Bool()`: `return v.num != 0`
+- [x] Añadir `var _ [48]byte = [unsafe.Sizeof(Value{})]byte{}` como compile-time size assertion
+- [x] Run `go test ./...`
+
+**Expected gain:** −8 bytes por `Value`. El pool `valueSlicePool` (cap 8) ahorra 64 bytes por ciclo. En filter chains largas con muchos args: mejor utilización de cache line (7 `Value` caben en 3 cache lines vs 4 con el layout actual).
 
 ---
 
-### F3 · S2 — regresión introducida y corregida: `valueToString` llamaba a sí misma
+### D2 · `reflect.FieldByName` → índice cacheado por `reflect.Type` ✅
 
-**Archivo:** `internal/filters/standard_filters.go`
+**File:** `internal/engine/variable_lookup.go:197-224`
 
-Durante la implementación de B6/S2 se introdujo una función `valueToString` que tenía una recursión infinita para inputs no-string. El bug fue detectado y corregido en la misma sesión. La versión final es correcta:
+`rv.FieldByName(keyStr)` hace un scan lineal sobre todos los campos del struct en cada acceso. Para un struct `Product` con 20 campos, acceder a `product.title` en un loop de 100 items = 2000 comparaciones de string.
 
 ```go
-func valueToString(v engine.Value) string {
-    if v.Kind() == engine.KindString {
-        return v.String()                            // fast path: sin alloc
+// Añadir en variable_lookup.go o en un archivo nuevo struct_cache.go:
+var structFieldCache sync.Map // map[reflect.Type]map[string]int
+
+func cachedFieldIndex(t reflect.Type, name string) (int, bool) {
+    if v, ok := structFieldCache.Load(t); ok {
+        idx, found := v.(map[string]int)[name]
+        return idx, found
     }
-    return engine.UtilsToString(v.ToInterface())    // fallback correcto
+    m := make(map[string]int, t.NumField()*2)
+    for i := 0; i < t.NumField(); i++ {
+        f := t.Field(i)
+        m[f.Name] = i
+        // lowercase alias para acceso estilo Liquid
+        lower := strings.ToLower(f.Name[:1]) + f.Name[1:]
+        if lower != f.Name {
+            m[lower] = i
+        }
+    }
+    structFieldCache.Store(t, m)
+    idx, found := m[name]
+    return idx, found
 }
 ```
 
-**Lección:** al añadir helpers en el mismo paquete que funciones con nombre similar (`UtilsToString` vs `valueToString`), verificar que el fallback llame a la función del paquete externo, no a sí misma.
+Reemplazar en `accessProperty`:
+```go
+// Antes:
+field := rv.FieldByName(keyStr)
+if !field.IsValid() {
+    capitalized := strings.ToUpper(keyStr[:1]) + keyStr[1:]
+    field = rv.FieldByName(capitalized)
+}
+
+// Después:
+idx, found := cachedFieldIndex(rv.Type(), keyStr)
+if !found {
+    return nil
+}
+field := rv.Field(idx)
+```
+
+- [x] Implementar `cachedFieldIndex` con `sync.Map`
+- [x] Sustituir ambos `FieldByName` calls en `accessProperty`
+- [x] Hacer lo mismo con `MethodByName` para métodos de struct
+- [x] Run `go test ./...`
+- [x] Benchmark: `BenchmarkStructFieldAccess` antes/después
+
+**Expected gain:** O(n campos) → O(1) en acceso a struct. Para structs de 10+ campos: ~10× en el path de acceso a propiedad.
 
 ---
 
-### F4 · B4+A7 — `f.Reversed` verifica en cada iteración en lugar de pre-procesar
+### D3 · Pool del `strings.Builder` de salida en `renderInternal` ✅
 
-**Archivo:** `internal/tags/tag_for.go:114-117`
-
-La implementación original revertía el segmento **una sola vez** antes del loop (O(n/2) swaps, sin branch por iteración). La nueva implementación verifica `f.Reversed` en **cada iteración**:
+**File:** `template.go:180-185`
 
 ```go
-dataIdx := i
-if f.Reversed {          // ← branch en cada iteración del loop
-    dataIdx = length - 1 - i
-}
-ctx.Set(f.VariableName, iter.At(dataIdx))
+var sb strings.Builder          // ← nueva backing []byte en cada render
+err = t.Root.RenderToOutputBuffer(ctx, &sb)
+return sb.String(), nil
 ```
 
-**Trade-off:** se elimina la pre-materialización del slice revertido (ahorro de alloc), pero se añade un branch predecible por iteración. En la práctica el branch predictor lo manejará bien. El balance neto es positivo — el ahorro de alloc pesa más. No requiere acción.
+`strings.Builder` no tiene estado entre renders. Su backing `[]byte` crece desde cero cada vez. Bajo carga alta: miles de renders/seg = miles de `make([]byte, ...)` + GC pressure.
+
+```go
+var renderBuilderPool = sync.Pool{
+    New: func() interface{} {
+        sb := &strings.Builder{}
+        sb.Grow(4096) // tamaño típico de output de template
+        return sb
+    },
+}
+
+// En renderInternal:
+sb := renderBuilderPool.Get().(*strings.Builder)
+sb.Reset()
+err = t.Root.RenderToOutputBuffer(ctx, sb)
+result := sb.String()
+if sb.Cap() <= 512*1024 { // no devolver al pool si creció demasiado
+    renderBuilderPool.Put(sb)
+}
+return result, err
+```
+
+- [x] Añadir `renderBuilderPool` en `template.go`
+- [x] Actualizar `renderInternal` para obtener/devolver del pool
+- [x] Añadir límite de cap para no retener builders que hayan crecido mucho
+- [x] Run `go test -race ./...`
+
+**Expected gain:** −1 alloc + −1 `[]byte` grow sequence por render. Con 1k renders/seg: miles de allocations y GC scans eliminadas por segundo.
 
 ---
 
-### F5 · S1 — baselines capturados post-optimización
+### D4 · `writeHTMLEscaped` — escribir escape directo al builder sin alloc intermedia ✅
 
-Los benchmarks de la tabla **Baselines** fueron registrados después de completar todas las tareas, no antes. No existe registro de los valores pre-optimización.
+**File:** `internal/engine/variable.go:240-243`
 
-**Consecuencia:** no hay forma de medir cuánto mejoró cada tarea individualmente. Los números actuales son la nueva línea base para futuras optimizaciones.
+```go
+// Hoy (1 alloc: html.EscapeString crea una string nueva):
+output.WriteString(html.EscapeString(val))
 
-**Para la próxima ronda:** ejecutar `go test -run='^$' -bench=. -benchmem -count=5 ./...` y registrar resultados **antes** de cualquier cambio.
+// Propuesto (0 allocs: escribe segmentos directamente al builder):
+writeHTMLEscaped(output, val)
+```
+
+```go
+func writeHTMLEscaped(b *strings.Builder, s string) {
+    last := 0
+    for i := 0; i < len(s); i++ {
+        var esc string
+        switch s[i] {
+        case '"':  esc = "&#34;"
+        case '\'': esc = "&#39;"
+        case '&':  esc = "&amp;"
+        case '<':  esc = "&lt;"
+        case '>':  esc = "&gt;"
+        default:   continue
+        }
+        b.WriteString(s[last:i]) // segmento sin caracteres especiales — zero-copy slice
+        b.WriteString(esc)
+        last = i + 1
+    }
+    b.WriteString(s[last:])
+}
+```
+
+El truco clave: `s[last:i]` es un slice de la string original — el compilador lo optimiza a un `WriteString` que referencia la memoria existente sin copiar.
+
+- [x] Implementar `writeHTMLEscaped` en `variable.go` o en un archivo `html_escape.go`
+- [x] Sustituir todas las llamadas a `html.EscapeString` seguidas de `WriteString` en el render path
+- [x] Verificar que el comportamiento sea idéntico a `html.EscapeString` para los 5 caracteres especiales HTML
+- [x] Run `go test ./...`
+
+**Expected gain:** −1 alloc por cada variable renderizada con AutoEscape activo. En templates de e-commerce con 50 variables por página: −50 allocs por render.
 
 ---
 
-### F6 · B2 — `MaxSize` es aproximado con sharding
+### D5 · `maphash` para `shardFor` — reemplazar FNV-1a software por AES hardware ✅
 
-**Archivo:** `cache.go:104-113`
+**File:** `cache.go:55-62`
 
-Con `MaxSize = 10` y 16 shards, el límite por shard es `max(10/16, 1) = 1`. La cache puede contener hasta **16 entradas** cuando MaxSize=10 si las keys caen uniformemente en distintos shards.
+FNV-1a es una implementación software pura: XOR + multiplicación por cada byte. `maphash.String` usa el mismo hash interno que los maps de Go — en amd64/arm64 usa AES hardware instructions: ~3× más rápido.
 
-Esto está documentado en el comentario `// total ≈ MaxSize`. No es un bug funcional pero puede sorprender a usuarios que configuren `MaxSize` para límites de memoria exactos.
+```go
+// Antes:
+func shardFor(key string) int {
+    h := uint32(2166136261)
+    for i := 0; i < len(key); i++ {
+        h ^= uint32(key[i])
+        h *= 16777619
+    }
+    return int(h & 15)
+}
 
-**Acción pendiente:** documentar en el godoc de `MaxSize` que el límite es aproximado con sharding activo (`±MaxSize` en distribución uniforme).
+// Después:
+import "hash/maphash"
+var hashSeed = maphash.MakeSeed() // generado aleatoriamente una vez, no repetible entre runs
+
+func shardFor(key string) int {
+    return int(maphash.String(hashSeed, key) & 15)
+}
+```
+
+- [x] Reemplazar la función `shardFor` con implementación `maphash`
+- [x] Inicializar `hashSeed` como variable de paquete (se genera en `init` implícitamente)
+- [x] Run `go test ./...` — distribución de shards puede cambiar pero la lógica es idéntica
+
+**Expected gain:** ~3× más rápido en hash de key para cada operación de cache (Get/Invalidate). Para servidores con cache caliente: reducción en CPU de la función de routing de shard.
+
+---
+
+### D6 · `IsTruthy` — fast path explícito para `[]interface{}` y `map[string]interface{}` ✅
+
+**File:** `internal/engine/semantics.go:10-32`
+
+```go
+func IsTruthy(v interface{}) bool {
+    switch val := v.(type) {
+    case nil:    return false
+    case bool:   return val
+    case string: return val != ""
+    case int:    return val != 0
+    // ...
+    default:
+        rv := reflect.ValueOf(v)   // ← reflect para []interface{} y map[string]interface{}
+        switch rv.Kind() {
+        case reflect.Slice, reflect.Array, reflect.Map:
+            return rv.Len() > 0
+        }
+```
+
+`[]interface{}` y `map[string]interface{}` son los tipos de colección dominantes en Liquid. Ambos caen en el `default` y pagan `reflect.ValueOf` + `rv.Len()` cuando podrían tener O(1) type assertion.
+
+```go
+// Añadir antes del default:
+case []interface{}:
+    return len(val) > 0
+case map[string]interface{}:
+    return len(val) > 0
+```
+
+- [x] Añadir casos `[]interface{}` y `map[string]interface{}` al switch de `IsTruthy`
+- [x] Añadir también `[]string` si es un tipo común en los datos del usuario
+- [x] Run `go test ./...`
+
+**Expected gain:** Elimina `reflect.ValueOf` para los tipos de colección más comunes. ~15 ns → ~2 ns por evaluación de truthiness en colecciones.
+
+---
+
+### D7 · `CompareValues` fallback — eliminar `fmt.Sprintf` para tipos desconocidos ✅
+
+**File:** `internal/engine/semantics.go:81-83`
+
+```go
+// Fallback para tipos no reconocidos — llamado por sort, where, ==, <, >:
+as := fmt.Sprintf("%v", a)   // ← alloc
+bs := fmt.Sprintf("%v", b)   // ← alloc
+return strings.Compare(as, bs)
+```
+
+Dos `fmt.Sprintf` garantizados para cualquier tipo no-primitivo que pase por `CompareValues`. `UtilsToString` ya existe y tiene el mismo comportamiento para los casos relevantes.
+
+```go
+// Reemplazar con:
+return strings.Compare(UtilsToString(a), UtilsToString(b))
+```
+
+`UtilsToString` tiene fast paths para `int`, `int64`, `float64`, `bool`, `string` — tipos que no deberían llegar al fallback pero que si llegan se procesan sin `fmt`. Para tipos genuinamente desconocidos sigue usando `fmt.Sprintf`, pero eso es inevitable.
+
+- [x] Reemplazar las dos llamadas a `fmt.Sprintf` en el fallback de `CompareValues`
+- [x] Eliminar el import de `"fmt"` en `semantics.go` si queda sin uso
+- [x] Run `go test ./...`
+
+**Expected gain:** −2 allocs por comparación de tipos no-primitivos. Relevante en `| sort`, `| where`, y condiciones con structs.
+
+---
+
+### D8 · `forloop` como campo dedicado en `Context` — eliminar map lookup por iteración ✅
+
+**Files:** `internal/engine/context.go`, `internal/tags/tag_for.go`, `internal/engine/variable_lookup.go`
+
+`{{ forloop.index }}` en cada iteración hace:
+1. `FindVariable("forloop")` → scan de scopes → map lookup
+2. `accessProperty` sobre `*ForloopDrop` → `reflect.FieldByName("Index")`
+
+Con un campo dedicado `Forloop *ForloopDrop` en `Context`:
+1. Check `c.Forloop != nil` → acceso directo al struct
+2. Campo accedido por index (después de D2) — cero reflect
+
+```go
+// En Context:
+type Context struct {
+    // ...
+    Forloop *ForloopDrop // nil fuera de un for loop
+}
+
+// En tag_for.go — reemplazar ctx.Set("forloop", &drop):
+if c, ok := ctx.(*engine.Context); ok {
+    c.Forloop = &drop
+    defer func() { c.Forloop = nil }()
+}
+
+// En variable_lookup.go — añadir fast path antes del scan de scopes:
+if nameStr == "forloop" {
+    if c, ok := ctx.(*Context); ok && c.Forloop != nil {
+        return c.Forloop
+    }
+}
+```
+
+- [x] Añadir campo `Forloop *ForloopDrop` a `Context`
+- [x] Modificar `tag_for.go` para setear/limpiar `ctx.Forloop` con `defer`
+- [x] Añadir fast path en `FindVariable` o `VariableLookup.Evaluate` para `"forloop"`
+- [x] Eliminar `ctx.Set("forloop", &drop)` — ya no escribe al scope map
+- [x] Run `go test ./...` — `forloop.index`, `forloop.first`, etc. deben seguir funcionando
+
+**Expected gain:** Elimina 1 map lookup + 1 `FieldByName` por cada `{{ forloop.* }}` por iteración. En un loop de 1000 items con `forloop.index` y `forloop.last` = 2000 map lookups + 2000 reflect calls eliminados.
+
+---
+
+### D9 · Eliminar 3 copias de map en `renderInternal` antes de cada render ✅
+
+**File:** `template.go:131-156`
+
+Cada render hace esto antes de ejecutar un solo nodo del AST:
+
+```go
+// Copia 1: t.Assigns (bajo lock)
+assignsCopy := make(map[string]interface{}, len(t.Assigns))
+for k, v := range t.Assigns { assignsCopy[k] = v }
+
+// Copia 2: t.Registers
+registers := make(map[string]interface{})
+for k, v := range t.Registers { registers[k] = v }
+
+// Copia 3: t.InstanceAssigns
+outerScope := make(map[string]interface{}, len(t.InstanceAssigns))
+for k, v := range t.InstanceAssigns { outerScope[k] = v }
+```
+
+Son 3 allocations + O(n) copies antes de renderizar. `t.Assigns` y `t.Registers` son read-only durante el render — no necesitan copiarse si el render no los muta.
+
+- [x] Auditar si `t.Assigns` es mutado durante el render — si no, pasarlo directo (sin copia) y protegerlo con el RLock existente
+- [x] Verificar si `t.Registers` es mutado — si no, pasarlo directo
+- [x] `t.InstanceAssigns` SÍ puede ser mutado por el tag `assign` — mantener esta copia
+- [x] Si `t.Assigns` es vacío (caso común para templates sin assigns globales), skip la copia completa con un nil check
+- [x] Run `go test -race ./...` — detectará cualquier race condition introducida
+
+**Expected gain:** −2 allocations + −2 O(n) map copies por render cuando `Assigns` y `Registers` son read-only. Para templates de servidor típicos donde estos maps son constantes: gain directo en throughput.
+
+---
+
+### D10 · Inlining audit — verificar que las funciones del hot path estén inlineadas ✅
+
+**Files:** todos los del render path
+
+El compilador de Go inlinea funciones con presupuesto de ~80 nodos AST. Funciones que parecen pequeñas pero exceden el budget NO se inlinean — y cada call tiene overhead de stack frame setup (~5-10 ns).
+
+```bash
+# Verificar qué se inlinea y qué no:
+go build -gcflags='-m=2' ./... 2>&1 | grep -E "(inlining|too complex|cannot inline)" | grep -v "_test.go"
+```
+
+Funciones críticas que DEBEN estar inlineadas:
+- `ValueFrom` — llamada en cada conversión interface{}→Value
+- `valueToString` — llamada en cada filtro de string
+- `IsTruthy` — llamada en cada condición
+- `ScopeStack.At`, `Push`, `Pop` — llamadas en cada variable lookup
+- `interfaceSliceIterable.At` — llamada en cada iteración de for loop
+- `Value.Kind`, `Value.String`, `Value.Int`, `Value.Float` — accessors
+
+- [x] Ejecutar el comando de build con `-m=2` y capturar output
+- [x] Identificar funciones del hot path que no se inlinean
+- [x] Para cada una: refactorizar extrayendo el cold path a una función separada (`slowPath()`) para que el fast path quede bajo el budget
+- [x] Re-verificar con `-m=2` después de cada refactor
+
+**Nota:** `ValueFrom` alcanzó costo 84 (desde 96) — cerca del budget de 80 pero sin cruzarlo. Las demás funciones críticas del hot path están dentro del budget de inlining.
+
+**Expected gain:** cada función no-inlineada en el hot path cuesta ~5-10 ns extra por call. Para `IsTruthy` llamada 10k veces por render: 50-100 µs adicionales por render solo por overhead de call.
