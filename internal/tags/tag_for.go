@@ -103,10 +103,10 @@ func (f *For) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Bui
 	}
 
 	length := len(segment)
-	drop := &ForloopDrop{Length: length}
+	drop := ForloopDrop{Length: length}
 
 	return ctx.Stack(nil, func() error {
-		ctx.Set("forloop", drop)
+		ctx.Set("forloop", &drop)
 		for i, item := range segment {
 			if err := c.ResourceLimits.IncrementRenderScore(1); err != nil {
 				return engine.MemoryError{BaseError: engine.BaseError{Message: err.Error(), Cause: err}}
