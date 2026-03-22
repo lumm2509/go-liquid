@@ -9,17 +9,9 @@ import (
 	"github.com/go-liquid/internal/runtime"
 )
 
-// ForloopDrop holds the forloop metadata available as {{ forloop.index }}, etc.
-// Using a struct instead of a map eliminates per-iteration hash operations.
-type ForloopDrop struct {
-	Index   int
-	Index0  int
-	Rindex  int
-	Rindex0 int
-	First   bool
-	Last    bool
-	Length  int
-}
+// ForloopDrop is defined in internal/engine so Context can hold a direct pointer.
+// Re-exported as a type alias so external code that embeds or inspects it still works.
+type ForloopDrop = engine.ForloopDrop
 
 var ForSyntax = regexp.MustCompile(`^([\w\-]+)\s+in\s+(.+)$`)
 var forLimitRe = regexp.MustCompile(`\blimit:(\S+)`)
@@ -96,10 +88,15 @@ func (f *For) RenderToOutputBuffer(ctx engine.RenderContext, output *strings.Bui
 
 	iter := engine.ToIterable(collection, fromPtr, toPtr)
 	length := iter.Len()
-	drop := ForloopDrop{Length: length}
+	drop := engine.ForloopDrop{Length: length}
+
+	// D8: store forloop in a dedicated Context field instead of the scope map.
+	// This lets VariableLookup.Evaluate skip the scope scan for {{ forloop.* }}.
+	prevForloop := c.Forloop
+	c.Forloop = &drop
+	defer func() { c.Forloop = prevForloop }()
 
 	return ctx.Stack(nil, func() error {
-		ctx.Set("forloop", &drop)
 		for i := 0; i < length; i++ {
 			if err := c.ResourceLimits.IncrementRenderScore(1); err != nil {
 				return engine.MemoryError{BaseError: engine.BaseError{Message: err.Error(), Cause: err}}

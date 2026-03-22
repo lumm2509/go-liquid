@@ -108,6 +108,9 @@ type Context struct {
 	filterDispatcher    *FilterDispatcher
 	baseScopeDepth      int
 	runtimeExprCache    map[string]interface{} // lazy; caches Get() expression parses
+	// Forloop is set by the for-tag to enable O(1) forloop variable access.
+	// nil outside of a for-loop body.
+	Forloop *ForloopDrop
 }
 
 // ContextConfig holds all parameters for constructing a render Context.
