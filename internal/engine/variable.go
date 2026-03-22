@@ -22,12 +22,20 @@ var filterArgsPool = sync.Pool{
 // when AutoEscape is active. Returned by the `raw` filter.
 type SafeHTML string
 
+// FilterCall holds a parsed filter name and its pre-parsed arguments.
+// Replaces the untyped [][]interface{} storage to eliminate 2 type assertions
+// per filter per render.
+type FilterCall struct {
+	Name string
+	Args []interface{}
+}
+
 // Variable is an AST node that evaluates a Liquid variable expression,
 // optionally applying a chain of filters.
 type Variable struct {
 	Markup     string
 	Name       interface{}
-	Filters    [][]interface{}
+	Filters    []FilterCall
 	lineNumber int
 }
 
@@ -59,7 +67,7 @@ func (v *Variable) parse(markup string, parseContext *ParseContext) {
 	name, _ := ParseExpression(namePart, parseContext.stringScanner, parseContext.expressionCache)
 	v.Name = name
 
-	v.Filters = make([][]interface{}, 0, len(parts)-1)
+	v.Filters = make([]FilterCall, 0, len(parts)-1)
 	for _, filterPart := range parts[1:] {
 		v.Filters = append(v.Filters, v.parseFilter(filterPart, parseContext))
 	}
@@ -98,7 +106,7 @@ func splitByPipeRespectingQuotes(s string) []string {
 
 var namedArgRegex = regexp.MustCompile(`^(\w+):\s*(.*)$`)
 
-func (v *Variable) parseFilter(markup string, parseContext *ParseContext) []interface{} {
+func (v *Variable) parseFilter(markup string, parseContext *ParseContext) FilterCall {
 	markup = strings.TrimSpace(markup)
 
 	filterNameEnd := -1
@@ -150,7 +158,7 @@ func (v *Variable) parseFilter(markup string, parseContext *ParseContext) []inte
 		}
 	}
 
-	return []interface{}{filterName, args}
+	return FilterCall{Name: filterName, Args: args}
 }
 
 func splitByCommaRespectingQuotes(s string) []string {
@@ -190,19 +198,16 @@ func (v *Variable) Render(ctx RenderContext) interface{} {
 	sp := filterArgsPool.Get().(*[]interface{})
 	scratch := *sp
 	for _, filter := range v.Filters {
-		filterName := filter[0].(string)
-		filterArgs := filter[1].([]interface{})
-
-		n := len(filterArgs)
+		n := len(filter.Args)
 		if cap(scratch) >= n {
 			scratch = scratch[:n]
 		} else {
 			scratch = make([]interface{}, n)
 		}
-		for i, arg := range filterArgs {
+		for i, arg := range filter.Args {
 			scratch[i] = ctx.Evaluate(arg)
 		}
-		obj = ctx.InvokeFilter(filterName, obj, scratch...)
+		obj = ctx.InvokeFilter(filter.Name, obj, scratch...)
 	}
 	// Clear held references and return largest slice to pool.
 	for i := range scratch {
