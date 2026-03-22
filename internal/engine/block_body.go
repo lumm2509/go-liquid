@@ -173,14 +173,14 @@ func (b *BlockBody) parseLiquidTag(markup string, parseContext *ParseContext) er
 }
 
 func (b *BlockBody) whitespaceHandler(token string, parseContext *ParseContext) {
-	if len(token) >= 3 && string(token[2]) == WhitespaceControl {
+	if len(token) >= 3 && token[2] == '-' {
 		if len(b.NodeList) > 0 {
 			if sn, ok := b.NodeList[len(b.NodeList)-1].(*StringNode); ok {
 				sn.TrimRight()
 			}
 		}
 	}
-	if len(token) >= 3 && string(token[len(token)-3]) == WhitespaceControl {
+	if len(token) >= 3 && token[len(token)-3] == '-' {
 		parseContext.TrimWhitespace = true
 	}
 }
@@ -191,7 +191,18 @@ func (b *BlockBody) RenderToOutputBuffer(ctx RenderContext, output *strings.Buil
 	if !ok {
 		return fmt.Errorf("BlockBody: expected *Context")
 	}
-	c.ResourceLimits.IncrementRenderScore(len(b.NodeList))
+
+	if goCtx := c.GoCtx; goCtx != nil {
+		if err := goCtx.Err(); err != nil {
+			return err
+		}
+	}
+
+	if err := c.ResourceLimits.IncrementRenderScore(len(b.NodeList)); err != nil {
+		return MemoryError{BaseError: BaseError{Message: err.Error(), Cause: err}}
+	}
+
+	hasLimits := c.ResourceLimits.RenderLengthLimit > 0 || c.ResourceLimits.AssignScoreLimit > 0
 
 	for _, node := range b.NodeList {
 		if err := b.renderNode(c, output, node); err != nil {
@@ -200,7 +211,11 @@ func (b *BlockBody) RenderToOutputBuffer(ctx RenderContext, output *strings.Buil
 		if c.Interrupt() {
 			break
 		}
-		c.ResourceLimits.IncrementWriteScore(output.Len())
+		if hasLimits {
+			if err := c.ResourceLimits.IncrementWriteScore(output.Len()); err != nil {
+				return MemoryError{BaseError: BaseError{Message: err.Error(), Cause: err}}
+			}
+		}
 	}
 	return nil
 }
@@ -214,7 +229,7 @@ func (b *BlockBody) renderNode(c *Context, output *strings.Builder, node Node) e
 		if c.Environment != nil {
 			if logger := c.Environment.GetLogger(); logger != nil {
 				logger.Log(DebugEvent{
-					Event: "render.node_error",
+					Event: EventRenderNodeError,
 					Data:  map[string]interface{}{"line": node.LineNumber(), "error": err.Error()},
 				})
 			}
@@ -227,11 +242,11 @@ func (b *BlockBody) renderNode(c *Context, output *strings.Builder, node Node) e
 func (b *BlockBody) createVariable(token string, parseContext *ParseContext) (*Variable, error) {
 	if strings.HasSuffix(token, VariableEndStr) {
 		i := 2
-		if string(token[i]) == WhitespaceControl {
+		if token[i] == '-' {
 			i = 3
 		}
 		parseEnd := len(token) - 2
-		if string(token[parseEnd-1]) == WhitespaceControl {
+		if token[parseEnd-1] == '-' {
 			parseEnd--
 		}
 		markup := token[i:parseEnd]

@@ -24,7 +24,11 @@ var Operators = map[string]Operator{
 		rv := reflect.ValueOf(left)
 		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
 			for i := 0; i < rv.Len(); i++ {
-				if reflect.DeepEqual(rv.Index(i).Interface(), right) {
+				elem := rv.Index(i).Interface()
+				if elem == right { // interface comparison — válida para string, int, bool, float64
+					return true
+				}
+				if reflect.DeepEqual(elem, right) {
 					return true
 				}
 			}
@@ -84,7 +88,8 @@ func parseRecursive(tokens []Token, parseContext TagParseContext) (*Condition, e
 		return nil, nil
 	}
 
-	var leftMarkup, op string
+	var leftTokens []Token
+	var op string
 	var right interface{}
 	var rel string
 	relIdx := -1
@@ -94,37 +99,35 @@ func parseRecursive(tokens []Token, parseContext TagParseContext) (*Condition, e
 		t := tokens[i]
 		if t.Type == ComparisonToken {
 			op = t.Value
-			leftMarkup = tokensToMarkup(tokens[:i])
+			leftTokens = tokens[:i]
 			p = i + 1
 			for j := p; j < len(tokens); j++ {
 				if tokens[j].Type == IdToken && (tokens[j].Value == "and" || tokens[j].Value == "or") {
-					rm := tokensToMarkup(tokens[p:j])
-					right, _ = parseContext.ParseExpression(rm)
+					right, _ = parseContext.ParseExpressionFromTokens(tokens[p:j])
 					rel = tokens[j].Value
 					relIdx = j
 					break
 				}
 				if tokens[j].Type == EOSToken {
-					rm := tokensToMarkup(tokens[p:j])
-					right, _ = parseContext.ParseExpression(rm)
+					right, _ = parseContext.ParseExpressionFromTokens(tokens[p:j])
 					break
 				}
 			}
 			break
 		}
 		if t.Type == IdToken && (t.Value == "and" || t.Value == "or") {
-			leftMarkup = tokensToMarkup(tokens[:i])
+			leftTokens = tokens[:i]
 			rel = t.Value
 			relIdx = i
 			break
 		}
 		if t.Type == EOSToken {
-			leftMarkup = tokensToMarkup(tokens[:i])
+			leftTokens = tokens[:i]
 			break
 		}
 	}
 
-	left, _ := parseContext.ParseExpression(leftMarkup)
+	left, _ := parseContext.ParseExpressionFromTokens(leftTokens)
 	cond := NewCondition(left, op, right)
 
 	if rel != "" {
@@ -196,7 +199,7 @@ func (c *Condition) interpretCondition(left, right interface{}, op string, ctx *
 		if ctx.Environment != nil {
 			if logger := ctx.Environment.GetLogger(); logger != nil {
 				logger.Log(DebugEvent{
-					Event: "condition.unknown_operator",
+					Event: EventConditionUnknownOperator,
 					Data:  map[string]interface{}{"operator": op},
 				})
 			}
@@ -210,15 +213,54 @@ func (c *Condition) EqualVariables(left, right interface{}) bool {
 	if left == right {
 		return true
 	}
+	// blank/empty symbols must be checked before nil short-circuit: nil == blank is true.
 	if isBlankSymbol(left) {
 		return isBlankValue(right)
 	}
 	if isBlankSymbol(right) {
 		return isBlankValue(left)
 	}
-	if left == nil && right == nil {
-		return true
+	if left == nil || right == nil {
+		return false
 	}
+
+	// Fast path para tipos primitivos de Liquid (cubre el 95%+ de los casos reales)
+	switch l := left.(type) {
+	case string:
+		r, ok := right.(string)
+		return ok && l == r
+	case int:
+		switch r := right.(type) {
+		case int:
+			return l == r
+		case int64:
+			return int64(l) == r
+		case float64:
+			return float64(l) == r
+		}
+	case int64:
+		switch r := right.(type) {
+		case int64:
+			return l == r
+		case int:
+			return l == int64(r)
+		case float64:
+			return float64(l) == r
+		}
+	case float64:
+		switch r := right.(type) {
+		case float64:
+			return l == r
+		case int:
+			return l == float64(r)
+		case int64:
+			return l == float64(r)
+		}
+	case bool:
+		r, ok := right.(bool)
+		return ok && l == r
+	}
+
 	return reflect.DeepEqual(left, right)
 }
 

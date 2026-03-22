@@ -1,6 +1,17 @@
 package engine
 
-import "github.com/go-liquid/internal/parser"
+import (
+	"sync"
+
+	"github.com/go-liquid/internal/parser"
+)
+
+// ParsedPartial is a partial template resolved and parsed at parse-time.
+// Stored in ParseContext.parsedPartials to avoid re-parsing on every render.
+type ParsedPartial struct {
+	Name string
+	Root *Document
+}
 
 // ParseContext holds all parse-time state for a single template parse pass.
 type ParseContext struct {
@@ -18,6 +29,11 @@ type ParseContext struct {
 	stringScanner   *StringScanner
 	expressionCache map[string]interface{}
 	partialOptions  map[string]interface{}
+
+	partialsMu    sync.RWMutex
+	parsedPartials map[string]*ParsedPartial
+
+	partialStateMu sync.Mutex // protege Partial, options, ErrorMode en SetPartial
 }
 
 // NewParseContext constructs a ParseContext from an options map.
@@ -41,6 +57,7 @@ func NewParseContext(options map[string]interface{}) *ParseContext {
 		stringScanner:   NewStringScanner(""),
 		Depth:           0,
 		Partial:         false,
+		parsedPartials:  make(map[string]*ParsedPartial),
 	}
 
 	if loc, ok := options["locale"].(*I18n); ok {
@@ -83,6 +100,37 @@ func (pc *ParseContext) ParseExpression(markup string) (interface{}, error) {
 	return ParseExpression(markup, pc.stringScanner, pc.expressionCache)
 }
 
+// ParseExpressionFromTokens parses an already-tokenized sub-slice directly,
+// avoiding the tokensToMarkup → ParseExpression round-trip.
+// Single-token cases (string literal, number, keyword) are resolved without
+// allocating an intermediate string. Complex expressions fall back to string
+// reconstruction and normal ParseExpression. Implements TagParseContext.
+func (pc *ParseContext) ParseExpressionFromTokens(tokens []Token) (interface{}, error) {
+	if len(tokens) == 1 {
+		t := tokens[0]
+		switch t.Type {
+		case StringToken:
+			if len(t.Value) >= 2 {
+				return t.Value[1 : len(t.Value)-1], nil
+			}
+			return t.Value, nil
+		case NumberToken:
+			if num, ok := parseNumber(t.Value); ok {
+				return num, nil
+			}
+		case IdToken:
+			if val, ok := Literals[t.Value]; ok {
+				return val, nil
+			}
+			if t.Value == "blank" || t.Value == "empty" {
+				return t.Value, nil
+			}
+		}
+	}
+	// Fall back to string reconstruction for dotted paths and other complex expressions.
+	return pc.ParseExpression(tokensToMarkup(tokens))
+}
+
 // SafeParseExpression parses the next expression from a Parser.
 func (pc *ParseContext) SafeParseExpression(p *Parser) (interface{}, error) {
 	return ParseExpressionSafe(p, pc.stringScanner, pc.expressionCache)
@@ -91,8 +139,13 @@ func (pc *ParseContext) SafeParseExpression(p *Parser) (interface{}, error) {
 // LineNo returns the current parse line number. Implements TagParseContext.
 func (pc *ParseContext) LineNo() int { return pc.LineNumber }
 
+// GetErrorMode returns the current error mode. Implements TagParseContext.
+func (pc *ParseContext) GetErrorMode() string { return pc.ErrorMode }
+
 // SetPartial switches option scoping for partial rendering.
 func (pc *ParseContext) SetPartial(isPartial bool) {
+	pc.partialStateMu.Lock()
+	defer pc.partialStateMu.Unlock()
 	pc.Partial = isPartial
 	if isPartial {
 		pc.options = pc.getPartialOptions()
@@ -134,6 +187,21 @@ func (pc *ParseContext) getPartialOptions() map[string]interface{} {
 
 	pc.partialOptions = pc.templateOptions
 	return pc.partialOptions
+}
+
+// GetParsedPartial returns a previously cached partial, safe for concurrent use.
+func (pc *ParseContext) GetParsedPartial(key string) (*ParsedPartial, bool) {
+	pc.partialsMu.RLock()
+	defer pc.partialsMu.RUnlock()
+	p, ok := pc.parsedPartials[key]
+	return p, ok
+}
+
+// SetParsedPartial stores a parsed partial in the parse-time cache, safe for concurrent use.
+func (pc *ParseContext) SetParsedPartial(key string, p *ParsedPartial) {
+	pc.partialsMu.Lock()
+	defer pc.partialsMu.Unlock()
+	pc.parsedPartials[key] = p
 }
 
 func (pc *ParseContext) setupExpressionCache(options map[string]interface{}) {

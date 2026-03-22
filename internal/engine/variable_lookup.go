@@ -112,10 +112,6 @@ func (vl *VariableLookup) Evaluate(ctx *Context) interface{} {
 		if obj == nil {
 			return nil
 		}
-
-		if d, ok := obj.(interface{ SetContext(*Context) }); ok {
-			d.SetContext(ctx)
-		}
 	}
 
 	return obj
@@ -124,6 +120,16 @@ func (vl *VariableLookup) Evaluate(ctx *Context) interface{} {
 func (vl *VariableLookup) accessProperty(ctx *Context, obj interface{}, key interface{}, index int) interface{} {
 	if obj == nil {
 		return nil
+	}
+
+	// Fast path: map[string]interface{} is the dominant case in Liquid — avoid reflect entirely
+	if m, ok := obj.(map[string]interface{}); ok {
+		if keyStr, ok := key.(string); ok {
+			if !vl.LookupCommand(index) {
+				v, _ := ctx.lookupAndEvaluate(m, keyStr, false)
+				return v
+			}
+		}
 	}
 
 	rv := reflect.ValueOf(obj)
@@ -191,6 +197,12 @@ func (vl *VariableLookup) accessProperty(ctx *Context, obj interface{}, key inte
 	if rv.Kind() == reflect.Struct {
 		if keyStr, ok := key.(string); ok {
 			field := rv.FieldByName(keyStr)
+			// Liquid uses lowercase keys; Go exported fields are capitalized.
+			// Fall back to capitalized lookup for structs exposed to templates.
+			if !field.IsValid() && len(keyStr) > 0 {
+				capitalized := strings.ToUpper(keyStr[:1]) + keyStr[1:]
+				field = rv.FieldByName(capitalized)
+			}
 			if field.IsValid() && field.CanInterface() {
 				return field.Interface()
 			}

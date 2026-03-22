@@ -10,15 +10,48 @@ import (
 	"time"
 )
 
-var DecimalRegex = regexp.MustCompile(`^-?\d+\.\d+$`)
 var UnixTimestampRegex = regexp.MustCompile(`^\d+$`)
 
+// mapKeyString returns the string representation of a map key without fmt.Sprintf allocations
+// for the common case where the key is already a string.
+func mapKeyString(v reflect.Value) string {
+	if v.Kind() == reflect.String {
+		return v.String()
+	}
+	return fmt.Sprintf("%v", v.Interface())
+}
+
 func SliceCollection(collection interface{}, from, to *int) []interface{} {
+	// Fast path: map[string]interface{} — avoids reflect.Value map key handling entirely
+	if m, ok := collection.(map[string]interface{}); ok {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		res := make([]interface{}, 0, len(keys))
+		for _, k := range keys {
+			res = append(res, []interface{}{k, m[k]})
+		}
+		start := 0
+		if from != nil {
+			start = *from
+		}
+		end := len(res)
+		if to != nil && *to < end {
+			end = *to
+		}
+		if start > end {
+			return []interface{}{}
+		}
+		return res[start:end]
+	}
+
 	rv := reflect.ValueOf(collection)
 	if rv.Kind() == reflect.Map {
 		keys := rv.MapKeys()
 		slices.SortFunc(keys, func(a, b reflect.Value) int {
-			return strings.Compare(fmt.Sprintf("%v", a.Interface()), fmt.Sprintf("%v", b.Interface()))
+			return strings.Compare(mapKeyString(a), mapKeyString(b))
 		})
 		res := make([]interface{}, 0, rv.Len())
 		for _, key := range keys {
@@ -96,15 +129,17 @@ func UtilsToNumber(obj interface{}) interface{} {
 		return v
 	case string:
 		s := strings.TrimSpace(v)
-		if DecimalRegex.MatchString(s) {
-			f, err := strconv.ParseFloat(s, 64)
-			if err == nil {
+		if strings.ContainsRune(s, '.') {
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
 				return f
 			}
-		}
-		i, err := strconv.Atoi(s)
-		if err == nil {
-			return i
+		} else {
+			if i, err := strconv.Atoi(s); err == nil {
+				return i
+			}
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
+				return f
+			}
 		}
 		return 0
 	default:

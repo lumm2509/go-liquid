@@ -92,7 +92,7 @@ func TestRegisters_Static(t *testing.T) {
 // --- ResourceLimits ---
 
 func TestResourceLimits_NoLimits(t *testing.T) {
-	rl := runtime.NewResourceLimits(nil)
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{})
 	rl.IncrementRenderScore(1000)
 	rl.IncrementAssignScore(1000)
 	if rl.Reached() {
@@ -101,7 +101,7 @@ func TestResourceLimits_NoLimits(t *testing.T) {
 }
 
 func TestResourceLimits_RenderScoreLimit(t *testing.T) {
-	rl := runtime.NewResourceLimits(map[string]interface{}{"render_score_limit": 5})
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{RenderScoreLimit: 5})
 	rl.IncrementRenderScore(3)
 	if rl.Reached() {
 		t.Fatal("not yet over limit")
@@ -113,7 +113,7 @@ func TestResourceLimits_RenderScoreLimit(t *testing.T) {
 }
 
 func TestResourceLimits_AssignScoreLimit(t *testing.T) {
-	rl := runtime.NewResourceLimits(map[string]interface{}{"assign_score_limit": 10})
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{AssignScoreLimit: 10})
 	rl.IncrementAssignScore(11)
 	if !rl.Reached() {
 		t.Fatal("should have reached assign limit")
@@ -121,7 +121,7 @@ func TestResourceLimits_AssignScoreLimit(t *testing.T) {
 }
 
 func TestResourceLimits_Reset(t *testing.T) {
-	rl := runtime.NewResourceLimits(map[string]interface{}{"render_score_limit": 1})
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{RenderScoreLimit: 1})
 	rl.IncrementRenderScore(5)
 	if !rl.Reached() {
 		t.Fatal("expected limit reached")
@@ -136,9 +136,9 @@ func TestResourceLimits_Reset(t *testing.T) {
 }
 
 func TestResourceLimits_Fork(t *testing.T) {
-	rl := runtime.NewResourceLimits(map[string]interface{}{
-		"render_score_limit": 100,
-		"assign_score_limit": 50,
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{
+		RenderScoreLimit: 100,
+		AssignScoreLimit: 50,
 	})
 	rl.IncrementRenderScore(30)
 
@@ -152,7 +152,7 @@ func TestResourceLimits_Fork(t *testing.T) {
 }
 
 func TestResourceLimits_WithCapture(t *testing.T) {
-	rl := runtime.NewResourceLimits(map[string]interface{}{"assign_score_limit": 100})
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{AssignScoreLimit: 100})
 	rl.WithCapture(func() {
 		// inside capture, IncrementWriteScore goes to assign score
 		_ = rl.IncrementWriteScore(20)
@@ -165,6 +165,34 @@ func TestResourceLimits_WithCapture(t *testing.T) {
 	if rl.AssignScore() != 35 {
 		t.Fatalf("expected assign score 35, got %d", rl.AssignScore())
 	}
+}
+
+func TestResourceLimits_IncrementRenderScoreReturnsErrorOnLimit(t *testing.T) {
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{RenderScoreLimit: 5})
+	if err := rl.IncrementRenderScore(3); err != nil {
+		t.Fatalf("expected no error at score 3, got %v", err)
+	}
+	if err := rl.IncrementRenderScore(3); err == nil {
+		t.Fatal("expected error when score exceeds limit, got nil")
+	}
+}
+
+func TestResourceLimits_IncrementAssignScoreReturnsErrorOnLimit(t *testing.T) {
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{AssignScoreLimit: 10})
+	if err := rl.IncrementAssignScore(11); err == nil {
+		t.Fatal("expected error when assign score exceeds limit, got nil")
+	}
+}
+
+func TestResourceLimits_IncrementWriteScorePropagatesAssignError(t *testing.T) {
+	rl := runtime.NewResourceLimits(runtime.ResourceLimitsConfig{AssignScoreLimit: 5})
+	// Prime the capture mode so IncrementWriteScore routes through IncrementAssignScore
+	rl.WithCapture(func() {
+		_ = rl.IncrementWriteScore(10) // increment=10 > limit=5, should propagate error
+		if !rl.Reached() {
+			t.Fatal("expected limits reached inside capture after exceeding assign limit")
+		}
+	})
 }
 
 // --- Interrupts ---

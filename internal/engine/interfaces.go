@@ -1,10 +1,12 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/go-liquid/internal/parser"
+	"github.com/go-liquid/internal/runtime"
 )
 
 // Type aliases — engine re-exports parser primitives for internal use.
@@ -40,9 +42,21 @@ const (
 	EOSToken         = parser.EOSToken
 )
 
+// DebugEventType is the type for structured debug event identifiers.
+// Use the Event* constants instead of raw strings to enable filtering and alerting.
+type DebugEventType string
+
+const (
+	EventFilterNotFound            DebugEventType = "filter.not_found"
+	EventEnvironmentFrozenTag      DebugEventType = "environment.frozen_tag_skipped"
+	EventContextOverflow           DebugEventType = "context.overflow"
+	EventRenderNodeError           DebugEventType = "render.node_error"
+	EventConditionUnknownOperator  DebugEventType = "condition.unknown_operator"
+)
+
 // DebugEvent is passed to DebugLogger on each internal event.
 type DebugEvent struct {
-	Event string
+	Event DebugEventType
 	Data  map[string]interface{}
 }
 
@@ -63,10 +77,10 @@ type ExceptionRenderer func(error) error
 // root.Environment implements this.
 type EnvironmentIface interface {
 	TagForName(name string) TagFactory
-	CreateStrainer(ctx *Context, filters []interface{}) *Strainer
+	CreateFilterDispatcher(ctx *Context, filters []interface{}) *FilterDispatcher
 	GetExceptionRenderer() ExceptionRenderer
 	GetFileSystem() FileSystem
-	GetDefaultResourceLimits() map[string]interface{}
+	GetDefaultResourceLimits() runtime.ResourceLimitsConfig
 	GetLogger() DebugLogger
 	GetErrorMode() string
 }
@@ -94,13 +108,32 @@ type RenderContext interface {
 	ApplyGlobalFilter(obj interface{}) interface{}
 	NewIsolatedSubcontext() RenderContext
 	MergeSubcontext(sub RenderContext)
+	// Context returns the Go context for this render (for cancellation and tracing).
+	// Returns context.Background() if no context was set.
+	Context() context.Context
 }
 
 // TagParseContext is the interface passed to TagFactory during tag construction.
 type TagParseContext interface {
 	ParseExpression(markup string) (interface{}, error)
+	// ParseExpressionFromTokens parses an already-tokenized sub-slice directly,
+	// avoiding the tokensToMarkup → ParseExpression round-trip for common cases.
+	ParseExpressionFromTokens(tokens []Token) (interface{}, error)
 	NewTokenizer(source string, startLine int, forLiquidTag bool) *Tokenizer
 	LineNo() int
+	GetParsedPartial(key string) (*ParsedPartial, bool)
+	SetParsedPartial(key string, p *ParsedPartial)
+	SetPartial(isPartial bool)
+	GetErrorMode() string
+}
+
+// StaticPartialLoader is implemented by tags that reference a static (literal)
+// partial name and can therefore be preloaded at parse time.
+// ParseDocument calls PreloadPartial on every top-level node that implements
+// this interface so that missing or broken partials are caught at parse time,
+// not at first render.
+type StaticPartialLoader interface {
+	PreloadPartial(pc TagParseContext) error
 }
 
 // TagFactory is the function type for registering tags in the Environment.

@@ -2,6 +2,14 @@ package runtime
 
 import "fmt"
 
+// ResourceLimitsConfig holds the configured limits for a render.
+// Use ResourceLimitsConfig{} (zero value) for unlimited rendering.
+type ResourceLimitsConfig struct {
+	RenderLengthLimit int
+	RenderScoreLimit  int
+	AssignScoreLimit  int
+}
+
 type ResourceLimits struct {
 	RenderLengthLimit int
 	RenderScoreLimit  int
@@ -13,33 +21,30 @@ type ResourceLimits struct {
 	lastCaptureLength *int
 }
 
-func NewResourceLimits(limits map[string]interface{}) *ResourceLimits {
-	rl := &ResourceLimits{}
-	if v, ok := limits["render_length_limit"].(int); ok {
-		rl.RenderLengthLimit = v
-	}
-	if v, ok := limits["render_score_limit"].(int); ok {
-		rl.RenderScoreLimit = v
-	}
-	if v, ok := limits["assign_score_limit"].(int); ok {
-		rl.AssignScoreLimit = v
+func NewResourceLimits(cfg ResourceLimitsConfig) *ResourceLimits {
+	rl := &ResourceLimits{
+		RenderLengthLimit: cfg.RenderLengthLimit,
+		RenderScoreLimit:  cfg.RenderScoreLimit,
+		AssignScoreLimit:  cfg.AssignScoreLimit,
 	}
 	rl.Reset()
 	return rl
 }
 
-func (rl *ResourceLimits) IncrementRenderScore(amount int) {
+func (rl *ResourceLimits) IncrementRenderScore(amount int) error {
 	rl.renderScore += amount
 	if rl.RenderScoreLimit > 0 && rl.renderScore > rl.RenderScoreLimit {
-		rl.RaiseLimitsReached()
+		return rl.RaiseLimitsReached()
 	}
+	return nil
 }
 
-func (rl *ResourceLimits) IncrementAssignScore(amount int) {
+func (rl *ResourceLimits) IncrementAssignScore(amount int) error {
 	rl.assignScore += amount
 	if rl.AssignScoreLimit > 0 && rl.assignScore > rl.AssignScoreLimit {
-		rl.RaiseLimitsReached()
+		return rl.RaiseLimitsReached()
 	}
+	return nil
 }
 
 func (rl *ResourceLimits) IncrementWriteScore(outputLen int) error {
@@ -47,7 +52,9 @@ func (rl *ResourceLimits) IncrementWriteScore(outputLen int) error {
 		captured := outputLen
 		increment := captured - *rl.lastCaptureLength
 		rl.lastCaptureLength = &captured
-		rl.IncrementAssignScore(increment)
+		if err := rl.IncrementAssignScore(increment); err != nil {
+			return err
+		}
 	} else if rl.RenderLengthLimit > 0 && outputLen > rl.RenderLengthLimit {
 		return rl.RaiseLimitsReached()
 	}

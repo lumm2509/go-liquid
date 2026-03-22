@@ -2,11 +2,25 @@ package engine
 
 import (
 	"fmt"
+	"html"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+// filterArgsPool reuses []interface{} slices for filter argument evaluation.
+var filterArgsPool = sync.Pool{
+	New: func() interface{} {
+		s := make([]interface{}, 0, 8)
+		return &s
+	},
+}
+
+// SafeHTML marks a string as already-safe HTML that should not be escaped
+// when AutoEscape is active. Returned by the `raw` filter.
+type SafeHTML string
 
 // Variable is an AST node that evaluates a Liquid variable expression,
 // optionally applying a chain of filters.
@@ -173,16 +187,29 @@ func splitByCommaRespectingQuotes(s string) []string {
 func (v *Variable) Render(ctx RenderContext) interface{} {
 	obj := ctx.Evaluate(v.Name)
 
+	sp := filterArgsPool.Get().(*[]interface{})
+	scratch := *sp
 	for _, filter := range v.Filters {
 		filterName := filter[0].(string)
 		filterArgs := filter[1].([]interface{})
 
-		evaluated := make([]interface{}, len(filterArgs))
-		for i, arg := range filterArgs {
-			evaluated[i] = ctx.Evaluate(arg)
+		n := len(filterArgs)
+		if cap(scratch) >= n {
+			scratch = scratch[:n]
+		} else {
+			scratch = make([]interface{}, n)
 		}
-		obj = ctx.InvokeFilter(filterName, obj, evaluated...)
+		for i, arg := range filterArgs {
+			scratch[i] = ctx.Evaluate(arg)
+		}
+		obj = ctx.InvokeFilter(filterName, obj, scratch...)
 	}
+	// Clear held references and return largest slice to pool.
+	for i := range scratch {
+		scratch[i] = nil
+	}
+	*sp = scratch[:0]
+	filterArgsPool.Put(sp)
 
 	return ctx.ApplyGlobalFilter(obj)
 }
@@ -190,17 +217,31 @@ func (v *Variable) Render(ctx RenderContext) interface{} {
 // RenderToOutputBuffer implements Node.
 func (v *Variable) RenderToOutputBuffer(ctx RenderContext, output *strings.Builder) error {
 	obj := v.Render(ctx)
-	renderObjToOutput(obj, output)
+	autoEscape := false
+	if c, ok := ctx.(*Context); ok {
+		autoEscape = c.AutoEscape
+	}
+	renderObjToOutput(obj, output, autoEscape, 0)
 	return nil
 }
 
-func renderObjToOutput(obj interface{}, output *strings.Builder) {
+func renderObjToOutput(obj interface{}, output *strings.Builder, autoEscape bool, depth int) {
+	if depth > 10 {
+		return // cortar silenciosamente — slices anidados profundos no tienen sentido en Liquid
+	}
 	if obj == nil {
 		return
 	}
 	switch val := obj.(type) {
+	case SafeHTML:
+		output.WriteString(string(val))
+		return
 	case string:
-		output.WriteString(val)
+		if autoEscape {
+			output.WriteString(html.EscapeString(val))
+		} else {
+			output.WriteString(val)
+		}
 		return
 	case int:
 		output.WriteString(strconv.Itoa(val))
@@ -222,14 +263,18 @@ func renderObjToOutput(obj interface{}, output *strings.Builder) {
 
 	obj = ToLiquidValue(obj)
 	if s, ok := obj.(string); ok {
-		output.WriteString(s)
+		if autoEscape {
+			output.WriteString(html.EscapeString(s))
+		} else {
+			output.WriteString(s)
+		}
 		return
 	}
 
 	rv := reflect.ValueOf(obj)
 	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
 		for i := 0; i < rv.Len(); i++ {
-			renderObjToOutput(rv.Index(i).Interface(), output)
+			renderObjToOutput(rv.Index(i).Interface(), output, autoEscape, depth+1)
 		}
 		return
 	}

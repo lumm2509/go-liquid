@@ -15,10 +15,24 @@ func NewDocument() *Document {
 }
 
 // ParseDocument tokenizes source and returns a fully parsed Document.
+// After parsing, it preloads any static partials found in top-level nodes so
+// that missing or broken partials fail at parse time rather than first render.
 func ParseDocument(tokenizer *Tokenizer, parseContext *ParseContext) (*Document, error) {
 	doc := NewDocument()
 	if err := doc.Parse(tokenizer, parseContext); err != nil {
 		return nil, err
+	}
+	// Skip preloading when we are already parsing a partial — the parent parse
+	// already handles caching, and re-entrant preloads would recurse infinitely
+	// on mutually-referencing partials.
+	if !parseContext.Partial {
+		for _, node := range doc.NodeList() {
+			if spl, ok := node.(StaticPartialLoader); ok {
+				if err := spl.PreloadPartial(parseContext); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 	return doc, nil
 }
