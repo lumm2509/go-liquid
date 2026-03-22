@@ -1,49 +1,39 @@
 # liquid
 
-A Shopify Liquid template engine for Go.
+A Shopify Liquid template engine for Go. Parses and renders Liquid templates — concurrently, and mostly correctly.
 
-> **v0.x** — API may change between minor versions. See [CHANGELOG](CHANGELOG.md) for breaking changes. v1.0 will be released once Phases 0–5 are complete and spec compliance is documented.
+![](.github/gopher-surfer.jpg)
 
-## Installation
+## what this is
+
+- A Go implementation of [Shopify Liquid](https://shopify.github.io/liquid/) — variables, filters, control flow, loops, partials, the whole thing
+- Immutable parsed templates: parse once, render from many goroutines without locking
+- Rendering is a pure function — same inputs, same output, no mutation of your data
+- Extensible: register custom filters and tags against an `Environment`
+
+## why it exists
+
+Needed a Liquid engine with a clear concurrency model. Built it around one constraint: `*Template` holds no render state, `Context` is created per-render and dies with it. That's basically the whole thesis. Whether it was worth it is left as an exercise.
+
+## how to use
 
 ```bash
 go get github.com/go-liquid
 ```
 
-## Examples
-
-### 1. Basic rendering
-
 ```go
-tmpl, err := liquid.Parse(`Hello {{ name | upcase }}!`, nil)
+tmpl, err := liquid.Parse(`Hello, {{ name | upcase }}!`, nil)
 if err != nil {
-    log.Fatal(err)
+    // parse error
 }
 
 out, err := tmpl.Render(map[string]interface{}{
     "name": "world",
 }, nil)
-// out == "Hello WORLD!"
+// out → "Hello, WORLD!"
 ```
 
-### 2. Loops and conditionals
-
-```go
-const src = `
-{% for product in products %}
-  {{ product.title }}{% if product.available %} — in stock{% endif %}
-{% endfor %}`
-
-tmpl, _ := liquid.Parse(src, nil)
-out, _ := tmpl.Render(map[string]interface{}{
-    "products": []map[string]interface{}{
-        {"title": "Widget", "available": true},
-        {"title": "Gadget", "available": false},
-    },
-}, nil)
-```
-
-### 3. Custom environment with filters and tags
+**With a custom environment:**
 
 ```go
 type MyFilters struct{}
@@ -57,44 +47,56 @@ env := liquid.BuildEnvironment(func(e *liquid.Environment) {
 })
 
 tmpl, _ := liquid.ParseWithEnv(`{{ msg | shout }}`, env, nil)
-out, _ := tmpl.Render(map[string]interface{}{"msg": "hello"}, nil)
-// out == "HELLO!!!"
 ```
 
-## Render options
+**With caching** (if you're parsing the same templates repeatedly):
+
+```go
+cache := liquid.NewTemplateCache(env)
+tmpl, err := cache.Get("key", source)
+```
+
+**With context propagation and timeouts:**
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+out, err := tmpl.RenderWithContext(ctx, data, nil)
+```
+
+**Strict mode** (unknown variables and filters return errors instead of silently passing through):
 
 ```go
 out, err := tmpl.Render(data, &liquid.RenderOptions{
-    StrictVariables: true,  // error on undefined variables
-    StrictFilters:   true,  // error on unknown filters
+    StrictVariables: true,
+    StrictFilters:   true,
 })
 ```
 
-## Concurrency
-
-A `*Template` is safe to use from multiple goroutines concurrently. Each call
-to `Render` creates its own isolated `Context`; no state is shared between
-concurrent renders.
-
-## Security
-
-This engine does **not** auto-escape HTML output. When rendering user-provided
-content in an HTML context, use the `escape` filter explicitly:
-
-```liquid
-{{ user_input | escape }}
-```
-
-## Debug logging
-
-Attach a `DebugLogger` to observe internal engine events without `fmt.Printf`:
+**Debug logging** (observe internal engine events without `fmt.Printf` scattered everywhere):
 
 ```go
 env := liquid.NewEnvironment()
-env.Logger = liquid.StdoutLogger{}  // or your own implementation
-
-tmpl, _ := liquid.ParseWithEnv(src, env, nil)
+env.Logger = liquid.StdoutLogger{} // or your own implementation
 ```
 
-Available events: `filter.not_found`, `condition.unknown_operator`,
-`environment.frozen_tag_skipped`, `context.overflow`, `render.node_error`.
+## design notes
+
+**Immutability.** `*Template` is read-only after parse. All execution state — variable scopes, loop counters, capture buffers — lives in a `Context` that's created and destroyed per `Render` call. This is not a recommendation; it's a hard contract enforced by the architecture.
+
+**The cache is sharded.** `TemplateCache` uses 16 buckets with `maphash`-based routing. Reads are effectively lock-free under the common case. You shouldn't need to think about this, and frankly neither should we, but here we are.
+
+**Lax by default.** Unknown variables resolve to `""`. Unknown filters pass input through unchanged. This matches Shopify's reference behavior. Flip to strict mode if you want errors instead.
+
+**No auto-escape.** HTML output is not escaped automatically (matching original Liquid behavior). Use `{{ var | escape }}` explicitly, or enable it globally via `RenderOptions` if you want it on by default.
+
+## what it is NOT
+
+- Not a general-purpose expression evaluator. You can't call arbitrary Go functions or reach into runtime state from templates.
+- Not a security sandbox. If you're rendering untrusted *templates* (not just untrusted data), that's a different problem entirely and not one we've thought hard about.
+- Not v1. The API will probably change in ways that will mildly inconvenience you at some point.
+
+## status
+
+Work in progress. Core rendering is functional and passes the Shopify Liquid spec suite. Concurrent rendering is verified under `-race`. Error messages are honest but not always helpful. Documentation is, as you can tell, a work in progress too.
