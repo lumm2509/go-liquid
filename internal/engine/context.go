@@ -141,12 +141,9 @@ func NewContext(cfg ContextConfig) *Context {
 		StaticEnvironments: staticEnvironments,
 		Scopes:             newScopeStack(outerScope),
 		Registers:          runtime.NewRegisters(registers),
-		Errors:             []error{},
-		Warnings:           []error{},
-		Partial:            false,
-		StrictVariables:    false,
-		baseScopeDepth: 0,
-		interrupts:     []interface{}{},
+		Partial:         false,
+		StrictVariables: false,
+		baseScopeDepth:  0,
 	}
 
 	ctx.ResourceLimits = resourceLimits
